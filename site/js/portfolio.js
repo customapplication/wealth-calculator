@@ -1,4 +1,4 @@
-/* My portfolio: your SIPs from inception, valued with AMFI NAVs. Stored only in this browser. */
+/* My portfolio: your SIPs from inception, valued with AMFI NAVs. Stored in this browser, and in the owner's Google Sheet when sync.js is connected. */
 (() => {
   'use strict';
   const { $, $$, esc, full, cmp, pct, units, isoToMs, msToIso, fmtDate, fmtMonth, todayMs, store, hexA, colors,
@@ -12,11 +12,13 @@
 
   let P = store.json(KEY, { holdings: [] });
   if (!P || !Array.isArray(P.holdings)) P = { holdings: [] };
-  let D = null, inited = false, chart = null, sel = null, results = [], computeToken = 0;
+  let D = null, inited = false, chart = null, sel = null, results = [], computeToken = 0, lastSnapshot = null;
   const view = Object.assign({ scope: 'all', mode: 'value' }, store.json(KEY + ':view', {}));
   const save = () => {
     if (!store.set(KEY, JSON.stringify(P))) $('#pfAddMsg').textContent = "Couldn't save in this browser (storage is full or blocked). Download a backup.";
+    MF.emit('mf:changed', { what: 'portfolio' });
   };
+  const synced = () => !!(window.Sync && window.Sync.connected());
   const newId = () => Math.random().toString(36).slice(2, 10);
 
   /* ---------- building each holding's transactions ---------- */
@@ -144,6 +146,24 @@
     if (token !== computeToken) return;
     results = list;
     renderSummary(); renderTable(); renderChart(); renderNotes();
+    publishValuation();
+  }
+
+  /** The figures on this page, for the Portfolio tab of the Google Sheet. */
+  function publishValuation() {
+    const r2 = x => (x == null || !isFinite(x)) ? null : Math.round(x * 100) / 100;
+    const rate = x => (x == null || !isFinite(x)) ? null : Math.round(x * 1e6) / 1e6;
+    const t = totals(results);
+    lastSnapshot = {
+      navDate: D ? D.navDate : null,
+      totals: results.some(r => !r.error) ? { moneyIn: r2(t.moneyIn), moneyOut: r2(t.moneyOut), net: r2(t.net), value: r2(t.value), gain: r2(t.gain), xirr: rate(t.xirr) } : null,
+      rows: results.map(r => {
+        const name = r.h.name || (D && D.byCode.get(r.code) ? D.byCode.get(r.code).n : `Scheme ${r.code}`);
+        return r.error ? { id: r.h.id, name, kind: r.h.kind, error: r.error }
+          : { id: r.h.id, name, kind: r.h.kind, code: r.code, units: Math.round(r.units * 1000) / 1000, net: r2(r.net), value: r2(r.value), gain: r2(r.gain), xirr: rate(r.xirr), navDate: msToIso(r.lastT) };
+      })
+    };
+    MF.emit('mf:valued', lastSnapshot);
   }
 
   function renderEmpty() {
@@ -153,6 +173,7 @@
     $('#pfFigures').innerHTML = ''; $('#pfTable').innerHTML = ''; $('#pfNotes').innerHTML = '';
     $('#pfChartWrap').hidden = true; $('#pfHoldings').hidden = true;
     if (chart) { chart.destroy(); chart = null; }
+    publishValuation();
   }
 
   function totals(list) {
@@ -379,13 +400,15 @@
       const out = $('#pfImportMsg');
       if (err) { out.textContent = err.message; return; }
       if (!obj || obj.format !== BACKUP_FORMAT || !Array.isArray(obj.holdings)) { out.textContent = "That isn't a backup from this page."; return; }
-      if (P.holdings.length && !window.confirm('Replace everything on this page with the backup?')) return;
+      if (P.holdings.length && !window.confirm(synced() ? 'Replace everything on this page, in your Google Sheet and on your other synced devices with the backup?' : 'Replace everything on this page with the backup?')) return;
       P = { holdings: obj.holdings, casWarnings: obj.casWarnings || [], casPeriod: obj.casPeriod || null };
       save(); out.textContent = `Restored ${P.holdings.length} investments.`; refresh();
     }));
     $('#pfClear').addEventListener('click', () => {
       if (!P.holdings.length) return;
-      if (!window.confirm('Remove every investment from this page? Download a backup first if you might want them back.')) return;
+      if (!window.confirm(synced()
+        ? 'Remove every investment from this page, your Google Sheet and your other synced devices? Download a backup first if you might want them back.'
+        : 'Remove every investment from this page? Download a backup first if you might want them back.')) return;
       P = { holdings: [] }; save(); refresh();
     });
     $('#pfTable').addEventListener('click', e => {
@@ -408,6 +431,17 @@
     try { D = await loadFunds(); } catch (e) { D = null; $('#pfFundHint').textContent = "The fund list isn't available yet (the nightly job hasn't built it). You can type an AMFI scheme code, or import a CAS file."; }
     refresh();
   }
+
+  /* For sync.js: read the portfolio, take one merged from other devices, and the latest figures. */
+  window.Portfolio = {
+    syncGet: () => P,
+    syncSet(next) {
+      P = next && Array.isArray(next.holdings) ? next : { holdings: [] };
+      if (!store.set(KEY, JSON.stringify(P))) $('#pfAddMsg').textContent = "Couldn't save in this browser (storage is full or blocked). Download a backup.";
+      if (inited) refresh(); else renderScopeOptions();
+    },
+    snapshot: () => lastSnapshot
+  };
 
   bind();
   document.addEventListener('mf:view', e => { if (e.detail.view === 'portfolio') init(); });

@@ -312,3 +312,19 @@ label.btn-quiet{display:inline-flex;align-items:center;cursor:pointer}
 .btn-x{border:0;background:none;color:var(--muted);font-size:13px;text-decoration:underline;text-underline-offset:2px;padding:2px 0}
 .btn-x:hover{color:var(--wd)}
 #pfTable td.fund{white-space:normal;min-width:240px;max-width:380px}
+
+/* Google Sheet sync */
+.sync-chip{display:inline-flex;align-items:center;gap:7px;text-decoration:none}
+.sync-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none}
+.sync-chip.busy .dot{background:var(--stamp)}
+.sync-chip.warn{color:var(--wd);border-color:var(--wd)}
+.sync-chip.warn .dot{background:var(--wd)}
+.rail #syncBox > .note{margin:0 0 12px}
+.rail details.how{margin:0 0 12px}
+.rail details.how summary{font-family:var(--sans);font-size:13.5px;font-weight:500;color:var(--stamp);padding-bottom:4px}
+.rail details.how summary::after{font-size:16px}
+.rail .sync-make{margin:-8px 0 12px}
+#syncBox input[type=url],#syncBox input[type=password],#syncBox input[type=text]{font-family:var(--mono);font-weight:400;font-size:13px}
+#syncState{font-size:13px;color:var(--ink-2)}
+#syncState.bad{color:var(--wd)}
+a.btn-quiet{text-decoration:none;display:inline-block}

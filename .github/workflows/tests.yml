@@ -1,0 +1,33 @@
+name: Tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/requirements*.txt
+
+      - name: Install
+        run: pip install -r pipeline/requirements-dev.txt
+
+      - name: Pipeline tests
+        run: python -m pytest -q pipeline/tests
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Google Sheet script tests
+        run: node --test sheets/tests/*.test.js
