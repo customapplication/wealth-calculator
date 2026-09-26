@@ -26,6 +26,7 @@
       <a href="#portfolio" data-view="portfolio">My portfolio</a>
     </nav>
     <div class="top-actions">
+      <a href="#portfolio" class="btn-quiet sync-chip" id="syncChip" hidden><span class="dot" aria-hidden="true"></span><span id="syncChipText">Saved to Sheet</span></a>
       <button type="button" class="btn-quiet" id="themeToggle">Dark theme</button>
     </div>
   </header>
@@ -302,9 +303,37 @@
           <div class="btn-row"><label class="btn-quiet">Choose portfolio file<input id="pfImport" type="file" accept=".json,application/json" hidden></label></div>
           <p class="hint" id="pfImportMsg" role="status"></p>
         </section>
+        <section id="syncBox">
+          <h2>Google Sheet</h2>
+          <p class="note">Keep your plan and portfolio in a Google Sheet you own, and the same on every device you connect. The Sheet shows your investments, every statement transaction and today's values.</p>
+          <div id="syncSetup">
+            <details class="how">
+              <summary>How to set up the Sheet</summary>
+              <ol class="steps-mini">
+                <li>Make a new Google Sheet. Open <b>Extensions</b>, then <b>Apps Script</b>, and paste in <code>sheets/Code.gs</code> from this site's GitHub repository.</li>
+                <li>Press <b>Make a new secret</b> below. In Apps Script, open <b>Project Settings</b>, then <b>Script properties</b>, and add the property <code>SECRET</code> with that value.</li>
+                <li>Choose <b>Deploy</b>, then <b>New deployment</b>, type <b>Web app</b>. Run it as <b>Me</b>, with access for <b>Anyone</b>, and allow the permissions it asks for.</li>
+                <li>Paste the web app URL (it ends in <code>/exec</code>) and the secret here, and connect. Do the same on your other devices.</li>
+              </ol>
+            </details>
+            <label class="field"><span class="lbl">Web app URL</span><span class="box"><input id="syncUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></span></label>
+            <label class="field"><span class="lbl">Secret <small>the SECRET script property</small></span><span class="box"><input id="syncSecret" type="password" autocomplete="off" spellcheck="false"></span></label>
+            <p class="hint sync-make"><button type="button" class="linkish" id="syncMake">Make a new secret</button></p>
+            <button type="button" class="btn-main wide" id="syncConnect">Connect</button>
+          </div>
+          <div id="syncOn" hidden>
+            <p class="hint" id="syncState" role="status"></p>
+            <div class="btn-row">
+              <button type="button" class="btn-quiet" id="syncNow">Sync now</button>
+              <a class="btn-quiet" id="syncOpen" target="_blank" rel="noopener" hidden>Open the Sheet</a>
+            </div>
+            <p><button type="button" class="linkish" id="syncOff">Disconnect this device</button></p>
+          </div>
+          <p class="hint" id="syncMsg" role="status"></p>
+        </section>
         <section>
           <h2>Backup</h2>
-          <p class="note">Your portfolio is saved only in this browser. Nothing is uploaded, and the site's public data never includes it.</p>
+          <p class="note" id="pfBackupNote">Your portfolio is saved only in this browser. Nothing is uploaded, and the site's public data never includes it.</p>
           <div class="btn-row">
             <button type="button" class="btn-quiet" id="pfExport">Download backup</button>
             <label class="btn-quiet">Restore a backup<input id="pfRestore" type="file" accept=".json,application/json" hidden></label>
@@ -342,6 +371,7 @@
 <script src="js/planner.js"></script>
 <script src="js/explore.js"></script>
 <script src="js/portfolio.js"></script>
+<script src="js/sync.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

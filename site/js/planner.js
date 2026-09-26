@@ -192,9 +192,10 @@ function cleanRates(list) {
   }
   return out.sort((a, b) => a - b).slice(0, 6);
 }
-function loadState() {
-  let saved = {};
-  try { saved = JSON.parse(store.get(KEY) || '{}') || {}; } catch (e) { saved = {}; }
+function loadState(saved) {
+  if (!saved || typeof saved !== 'object') {
+    try { saved = JSON.parse(store.get(KEY) || '{}') || {}; } catch (e) { saved = {}; }
+  }
   const s = Object.assign({}, DEFAULTS);
   for (const k of Object.keys(DEFAULTS)) {
     if (k === 'rates' || k === 'currentAge') continue;
@@ -206,7 +207,12 @@ function loadState() {
   return s;
 }
 let state = loadState();
-const save = () => store.set(KEY, JSON.stringify(state));
+const save = () => {
+  store.set(KEY, JSON.stringify(state));
+  document.dispatchEvent(new CustomEvent('mf:changed', { detail: { what: 'plan' } }));
+};
+// Which tab and chart view is showing belongs to each device; the rest syncs.
+const LOCAL_ONLY = ['tab', 'chartMode', 'valueMode'];
 const colorVar = i => `var(--c${(i % 6) + 1})`;
 function ageAt(y) {
   const a = state.currentAge;
@@ -921,6 +927,21 @@ window.Planner = {
     $('#rateMsg').textContent = `Added ${fmtNum(v)}% from the fund explorer.`;
     recalc();
     return true;
+  },
+  /* For sync.js: the plan's inputs, and whether they're all still the defaults. */
+  syncGet() {
+    const data = {};
+    for (const k of Object.keys(DEFAULTS)) if (!LOCAL_ONLY.includes(k)) data[k] = state[k];
+    return { data, blank: Object.keys(data).every(k => JSON.stringify(data[k]) === JSON.stringify(DEFAULTS[k])) };
+  },
+  /* Take inputs synced from another device, checked the same way as saved ones. */
+  syncSet(data) {
+    const keep = {};
+    LOCAL_ONLY.forEach(k => { keep[k] = state[k]; });
+    state = loadState(Object.assign({}, data, keep));
+    pushStateToInputs();
+    syncOutputs();
+    recalc();
   }
 };
 
