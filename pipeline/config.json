@@ -1,0 +1,20 @@
+{
+  "_help": "Settings for the nightly build. Keys starting with _ are comments.",
+  "sections": ["Open Ended Schemes"],
+  "plans": ["Direct", "Regular"],
+  "options": ["Growth"],
+  "_extra_schemes": "AMFI scheme codes to track even if they don't match the filters above, e.g. an IDCW fund you hold.",
+  "extra_schemes": [],
+  "exclude_name_patterns": ["segregated"],
+  "stale_after_days": 14,
+  "max_navall_age_days": 7,
+  "_risk_free_rate": "Used only for the Sharpe ratio. 0.065 = 6.5% a year.",
+  "risk_free_rate": 0.065,
+  "verify_days": 7,
+  "amfi_gap_fill_max_days": 180,
+  "amfi_history_chunk_days": 30,
+  "amfi_history_tp": 1,
+  "mfapi_workers": 6,
+  "mfapi_max_per_run": 5000,
+  "mfapi_refresh_cycle_days": 30
+}

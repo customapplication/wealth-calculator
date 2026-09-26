@@ -1,0 +1,13 @@
+# built every night by the workflow, never committed
+.cache/
+site/data/
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# personal files: keep these out of the repository
+*.pdf
+my-portfolio*.json
+portfolio-backup*.json

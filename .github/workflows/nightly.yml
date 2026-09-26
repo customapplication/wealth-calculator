@@ -1,0 +1,75 @@
+name: Nightly mutual fund data
+
+on:
+  schedule:
+    # 20:30 UTC = 02:00 IST, after AMFI has published the day's NAVs
+    - cron: "30 20 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "pipeline/**"
+      - ".github/workflows/nightly.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/requirements*.txt
+
+      - name: Install
+        run: pip install -r pipeline/requirements-dev.txt
+
+      - name: Test the parser and calculations
+        run: python -m pytest -q pipeline/tests
+
+      - name: Restore NAV history from the last run
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache
+          key: nav-history-${{ github.run_id }}
+          restore-keys: nav-history-
+
+      - name: Build fund data from AMFI
+        run: python pipeline/build.py
+
+      - name: Keep NAV history for the next run
+        # saved even if the build failed, so a long first backfill isn't lost
+        if: always() && hashFiles('.cache/index.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .cache
+          key: nav-history-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

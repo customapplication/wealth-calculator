@@ -1,0 +1,15 @@
+Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date
+
+Open Ended Schemes(Equity Scheme - Dividend Yield Fund)
+
+ICICI Prudential Mutual Fund
+
+120001;INF109K01Z11;-;ICICI Prudential Dividend Yield Equity Fund - Direct Plan - Growth;45.10;18-Aug-2026
+120002;INF109K01Z22;INF109K01Z33;ICICI Prudential Dividend Yield Equity Fund - Direct Plan - IDCW;20.20;18-Aug-2026
+120003;INF109K01Z44;-;ICICI Prudential Dividend Yield Equity Fund - Growth;41.00;18-Aug-2026
+
+Open Ended Schemes(Other Scheme - Other  ETFs)
+
+Nippon India Mutual Fund
+
+120004;INF204KB14I2;-;Nippon India ETF Nifty 50 BeES;260.55;18-Aug-2026
