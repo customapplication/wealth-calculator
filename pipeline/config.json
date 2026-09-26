@@ -16,5 +16,8 @@
   "amfi_history_tp": 1,
   "mfapi_workers": 6,
   "mfapi_max_per_run": 5000,
-  "mfapi_refresh_cycle_days": 30
+  "mfapi_refresh_cycle_days": 30,
+  "_archive": "Google Drive copies (sheets/Archive.gs): how often the full NAV history goes up, and the size of each part.",
+  "archive_snapshot_every_days": 30,
+  "archive_part_bytes": 5000000
 }

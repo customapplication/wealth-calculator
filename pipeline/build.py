@@ -36,6 +36,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import amfi  # noqa: E402
+import archive as drive  # noqa: E402
 import metrics  # noqa: E402
 import mfapi  # noqa: E402
 from store import Store, dumps, encode  # noqa: E402
@@ -60,6 +61,8 @@ DEFAULT_CONFIG = {
     "mfapi_workers": 6,
     "mfapi_max_per_run": 5000,
     "mfapi_refresh_cycle_days": 30,
+    "archive_snapshot_every_days": 30,
+    "archive_part_bytes": 5_000_000,
 }
 
 
@@ -72,6 +75,7 @@ class Net:
 
     def __init__(self) -> None:
         self._local = threading.local()
+        self.navall_bytes: bytes | None = None      # the last NAVAll.txt as served, for the archive
 
     def _session(self) -> requests.Session:
         s = getattr(self._local, "s", None)
@@ -80,7 +84,8 @@ class Net:
         return s
 
     def navall(self) -> tuple[str, str]:
-        return amfi.fetch_navall(self._session())
+        text, url, self.navall_bytes = amfi.fetch_navall_raw(self._session())
+        return text, url
 
     def history(self, frm: date, to: date, tp: int) -> str:
         return amfi.fetch_history(self._session(), frm, to, tp)
@@ -211,11 +216,14 @@ def recent_gap(series: dict[date, float], end: date, days: int = 60) -> int:
     return max((b - a).days for a, b in zip(recent, recent[1:])) if len(recent) > 1 else 0
 
 
-def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = None) -> dict:
+def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = None, archive=None) -> dict:
     started = time.time()
     today = today or datetime.now(IST).date()
 
     text, src_url = net.navall()
+    # A copy in the owner's Drive before anything else, so a file this build
+    # can't use is still kept exactly as AMFI served it.
+    archive_status = drive.archive_daily(archive, getattr(net, "navall_bytes", None) or text.encode("utf-8"), today)
     schemes, header = amfi.parse_navall(text)
     dated = [s.nav_date for s in schemes if s.nav_date]
     if not dated:
@@ -315,6 +323,11 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
         for code, share in metrics.consistency(group).items():
             per_scheme[code]["cons"] = share
 
+    archive_status = drive.archive_history(
+        archive, archive_status, today, cache_dir, cfg,
+        {"nav_date": max_date.isoformat(), "funds": len(targets), "with_full_history": full_count},
+    )
+
     tracked = {s.code for s in targets}
     funds = []
     for s in active:
@@ -354,6 +367,7 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
         "corrections": corrections,
         "mfapi": mf_status,
         "recent_gaps": {"count": gap_count, "examples": gaps},
+        "archive": archive_status,
         "method": {
             "rolling_window_days": metrics.ROLL_DAYS,
             "max_lookup_gap_days": metrics.MAX_LOOKUP_GAP,
@@ -378,7 +392,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args.out.mkdir(parents=True, exist_ok=True)
     try:
-        run(load_config(args.config), args.cache, args.out, Net())
+        run(load_config(args.config), args.cache, args.out, Net(), archive=drive.Archive.from_env())
     except (BuildError, amfi.AmfiError) as e:
         log.error("%s", e)
         return 1
