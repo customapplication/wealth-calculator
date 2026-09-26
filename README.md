@@ -146,6 +146,15 @@ It's a second, separate Apps Script, so the Sheet sync script stays limited to i
 
 The run's log says what was stored, and `meta.json` on the site has an `archive` section. If Drive can't be reached, the site is still built and published; the file for that night is simply missed.
 
+If the log says the archive didn't work, open your `ARCHIVE_URL` in a private browser window. You should see `{"ok":true,"app":"corpus-planner-archive",…}`. If you don't:
+
+- **A Google sign-in page:** the deployment's **Who has access** isn't **Anyone**. *Anyone with a Google account* isn't enough, because the nightly job has no Google account. Fix it under **Deploy → Manage deployments → Edit**.
+- **"Script function not found":** the deployed version was made before the code was pasted or saved. Save, then **Deploy → Manage deployments → Edit → Version: New version → Deploy**.
+- **"Authorization is required":** in the editor, choose `doGet` in the function list, press **Run**, and allow the permissions.
+- **The Apps Script editor:** `ARCHIVE_URL` is the editor's address. Use the **Web app URL** from **Deploy → Manage deployments**; it ends in `/exec`.
+
+The log names which of these it met.
+
 To restore the history into a fresh cache, download a *NAV history* folder and run `for f in *.tar.gz; do tar xzf "$f" -C .cache; done` in the repository.
 
 ## Settings

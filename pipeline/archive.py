@@ -20,14 +20,17 @@ from __future__ import annotations
 import base64
 import gzip
 import hashlib
+import html
 import io
 import json
 import logging
 import os
+import re
 import tarfile
 import time
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -69,8 +72,8 @@ class Archive:
                 try:
                     j = r.json()
                 except ValueError:
-                    raise ArchiveError("the archive script didn't answer with data; check that its deployment's "
-                                       "access is Anyone and ARCHIVE_URL ends in /exec") from None
+                    msg, final = web_page(r)
+                    raise ArchiveError(msg, final=final) from None
                 if not isinstance(j, dict) or j.get("app") != APP:
                     raise ArchiveError("ARCHIVE_URL points at a different Apps Script; deploy sheets/Archive.gs "
                                        "and use its URL", final=True)
@@ -107,6 +110,36 @@ class Archive:
         manifest = {**info, "id": snap_id, "parts": sums,
                     "restore": 'for f in *.tar.gz; do tar xzf "$f" -C .cache; done'}
         return self.call("snapshotCommit", id=snap_id, parts=len(parts), manifest=manifest)
+
+
+def web_page(r) -> tuple[str, bool]:
+    """Say what went wrong when Google answered with a web page instead of the script's data.
+
+    Returns (message, final). The page's title, and where Google redirected
+    to, usually name the cause; neither contains the secret, which is only in
+    the request body.
+    """
+    text = getattr(r, "text", "") or ""
+    host = urlparse(getattr(r, "url", "") or "").netloc
+    m = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
+    title = re.sub(r"\s+", " ", html.unescape(m.group(1))).strip()[:80] if m else ""
+    seen = f"Google answered with a web page ({title or 'untitled'}, HTTP {getattr(r, 'status_code', '?')})"
+    if "accounts.google.com" in host or re.search(r"sign.?in", title, re.I):
+        return (f"{seen}: it asked for a sign-in. In the archive's Apps Script, open Deploy -> Manage deployments -> "
+                "Edit and set Who has access to Anyone (not 'Anyone with a Google account'), and check that ARCHIVE_URL "
+                "is the web app URL ending in /exec, not /dev or the editor's address", True)
+    if re.search(r"function not found", text, re.I):
+        return (f"{seen}: the deployed version doesn't contain Archive.gs. Save the code, then Deploy -> Manage "
+                "deployments -> Edit -> Version: New version -> Deploy", True)
+    if re.search(r"authori[sz]ation is required|needs your permission|authori[sz]e", text, re.I):
+        return (f"{seen}: the script isn't authorised yet. In the Apps Script editor choose doGet, press Run, "
+                "and allow the permissions it asks for", True)
+    if "script.google.com" in host and re.search(r"/(edit|home)\b", urlparse(getattr(r, "url", "")).path):
+        return (f"{seen}: ARCHIVE_URL is the editor's address. Use the web app URL from Deploy -> Manage "
+                "deployments, which ends in /exec", True)
+    return (f"{seen}. Check that the deployment's Who has access is Anyone and that ARCHIVE_URL is the web app URL "
+            "ending in /exec. Opening that URL in a private browser window should show "
+            '{"ok":true,"app":"corpus-planner-archive",...}', False)
 
 
 def history_parts(cache_dir: Path, part_bytes: int) -> list[tuple[bytes, int]]:
