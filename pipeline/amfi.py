@@ -261,7 +261,11 @@ def _get(session: requests.Session, url: str, params: dict | None = None,
             last = e
         if i < attempts - 1:
             time.sleep(2 ** (i + 1))
-    raise last if last else AmfiError(f"Could not fetch {url}")
+    # Always an AmfiError, so fetch_navall falls back to the other host on a
+    # connection failure too, and build.main reports it instead of crashing.
+    if isinstance(last, AmfiError):
+        raise last
+    raise AmfiError(f"Could not fetch {url}: {last}") from last
 
 
 def fetch_navall(session: requests.Session) -> tuple[str, str]:

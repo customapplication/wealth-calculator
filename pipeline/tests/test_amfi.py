@@ -1,6 +1,7 @@
 from datetime import date
 
 import pytest
+import requests
 
 import amfi
 from pathlib import Path
@@ -59,6 +60,42 @@ def test_date_and_nav_parsing():
     assert amfi.parse_date("23-Sep-2026") == date(2026, 9, 23)
     assert amfi.parse_nav("1,234.5") == 1234.5
     assert amfi.parse_nav("0") is None and amfi.parse_nav("N.A.") is None
+
+
+class _Resp:
+    def __init__(self, text):
+        self.status_code, self.content = 200, text.encode()
+
+
+class _Session:
+    """Refuses connections to the hosts in `down`, serves `text` from the rest."""
+
+    def __init__(self, down, text):
+        self.down, self.text, self.urls = down, text, []
+
+    def get(self, url, **kw):
+        self.urls.append(url)
+        if any(h in url for h in self.down):
+            raise requests.ConnectionError(f"Tunnel connection failed: {url}")
+        return _Resp(self.text)
+
+
+def test_navall_falls_back_to_the_portal_host_when_www_is_unreachable(monkeypatch):
+    monkeypatch.setattr(amfi.time, "sleep", lambda s: None)
+    text = (FIXTURES / "navall_new.txt").read_text(encoding="utf-8")
+    session = _Session(down=["www.amfiindia.com"], text=text)
+    got, url = amfi.fetch_navall(session)
+    assert url == "https://portal.amfiindia.com/spages/NAVAll.txt" and got == text
+
+
+def test_unreachable_amfi_raises_amfi_error(monkeypatch):
+    monkeypatch.setattr(amfi.time, "sleep", lambda s: None)
+    session = _Session(down=["amfiindia.com"], text="")
+    with pytest.raises(amfi.AmfiError, match="Couldn't download NAVAll.txt"):
+        amfi.fetch_navall(session)
+    assert len(session.urls) == 8                       # 4 tries on each host
+    with pytest.raises(amfi.AmfiError, match="Could not fetch"):
+        amfi.fetch_history(session, date(2026, 9, 1), date(2026, 9, 25))
 
 
 def test_store_round_trip(tmp_path):

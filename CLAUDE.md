@@ -28,7 +28,7 @@ pipeline/            nightly data build (Python 3.12, requests + numpy)
   metrics.py         returns, rolling 3Y, drawdown, volatility, Sharpe, consistency vs category median
   build.py           orchestrator; run(cfg, cache_dir, out_dir, net, today) takes an injectable `net` for tests
   config.json        sections/plans/options filters, extra_schemes, risk-free rate, limits
-  tests/             pytest, 18 tests, fixtures in AMFI's real old (6-col) and new (8-col) formats
+  tests/             pytest, 20 tests, fixtures in AMFI's real old (6-col) and new (8-col) formats
 tools/cas_to_json.py CAS PDF -> portfolio JSON via casparser 1.4; strips name/PAN/email/phone/address
 site/                static site: index.html, css/app.css, js/{common,planner,explore,portfolio,app}.js
 .github/workflows/nightly.yml  02:00 IST: tests -> build -> Pages deploy; .cache kept via actions/cache
@@ -66,7 +66,7 @@ The site was also smoke-tested in jsdom against pipeline-built synthetic data: r
 
 ## Status
 
-- Built and tested offline. **Not yet run against live AMFI data**, because the original sandbox couldn't reach amfiindia.com. The first real run is the open risk: check the parser against the live file and the history report (the history report's columns may also have changed in Aug 2026).
+- Built and tested offline. **Not yet run against live AMFI data**, because the original sandbox couldn't reach amfiindia.com, and the Claude Code on the web environment (26 Sep 2026) was blocked too: its network policy denies www.amfiindia.com, portal.amfiindia.com and api.mfapi.in. Add those hosts to the environment's allowed domains, or run the workflow on GitHub. That attempt did fix one bug: a connection error on www.amfiindia.com used to skip the portal.amfiindia.com fallback and crash `build.py` with a traceback. The first real run is the open risk: check the parser against the live file and the history report (the history report's columns may also have changed in Aug 2026).
 - The first backfill may take most of an hour; `mfapi_max_per_run` caps it, and later nights resume.
 
 ## Proposed next steps (not started; confirm with the owner)
