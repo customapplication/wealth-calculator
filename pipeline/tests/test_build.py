@@ -52,11 +52,13 @@ class FakeNet:
 
     def history(self, frm, to, tp):
         self.history_calls.append((frm, to))
-        lines = ["Scheme Code;Scheme Name;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Net Asset Value;Repurchase Price;Sale Price;Date",
-                 "", "Open Ended Schemes ( Equity Scheme - Flexi Cap Fund )", "", "Test Mutual Fund", ""]
+        # the layout AMFI served to the first live run (26 Sep 2026)
+        lines = ["Scheme Code;NAV Name;Plan;Option;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Net Asset Value;Date",
+                 "", "Open Ended Schemes(Equity Scheme - Flexi Cap Fund)", "", "Test Mutual Fund", ""]
         for code in FUNDS:
+            n, _, plan, opt, *_ = FUNDS[code]
             for d in bdays(max(frm, FUNDS[code][5]), min(to, NAV_DATE)):
-                lines.append(f"{code};{FUNDS[code][0]};INF;;{true_nav(code, d)};;;{d:%d-%b-%Y}")
+                lines.append(f"{code};{n};{plan};{opt};INF00000{code:04d};;{true_nav(code, d)};{d:%d-%b-%Y}")
         return "\n".join(lines)
 
     def mfapi(self, code):
@@ -131,3 +133,30 @@ def test_amfi_history_failure_is_reported_not_fatal(tmp_path):
     assert meta["amfi_history"]["ok"] is False
     assert "timed out" in meta["amfi_history"]["errors"][0]
     assert meta["recent_gaps"]["count"] == 4          # MFapi stopped in August and nothing filled it
+
+
+def test_a_nav_dated_after_today_does_not_set_the_build_date(tmp_path):
+    class AheadNet(FakeNet):
+        def navall(self):
+            text, url = super().navall()
+            extra = ("\nOpen Ended Schemes(Debt Scheme - Liquid Fund)\n\nTest Mutual Fund\n\n"
+                     f"999;INF000009999;-;Epsilon Liquid Fund;Direct Plan;Growth Option;1000.5;{TODAY + timedelta(days=1):%d-%b-%Y}")
+            return text + extra, url
+    out = tmp_path / "site"
+    out.mkdir()
+    meta = build.run(cfg(), tmp_path / "cache", out, AheadNet(), today=TODAY)
+    assert meta["nav_date"] == NAV_DATE.isoformat()
+    assert meta["navall_ahead"]["count"] == 1
+    assert meta["navall_ahead"]["examples"][0]["code"] == 999
+    funds = {f["c"]: f for f in json.loads((out / "funds.json").read_text())["funds"]}
+    assert funds[999]["d"] == (TODAY + timedelta(days=1)).isoformat()      # kept as AMFI published it
+
+
+def test_an_empty_history_report_is_reported_not_counted_as_checked(tmp_path):
+    net = FakeNet()
+    net.history = lambda frm, to, tp: "Scheme Code;NAV Name;Plan;Option;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Net Asset Value;Date\n"
+    out = tmp_path / "site"
+    out.mkdir()
+    meta = build.run(cfg(), tmp_path / "cache", out, net, today=TODAY)
+    assert meta["amfi_history"]["ok"] is False
+    assert "had no NAVs for the tracked schemes" in meta["amfi_history"]["errors"][0]

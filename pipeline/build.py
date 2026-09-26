@@ -195,6 +195,13 @@ def fetch_amfi_window(net, frm: date, to: date, codes: set[int], cfg: dict):
             log.warning("AMFI history %s..%s failed: %s", d, e, ex)
             errors.append(f"{d.isoformat()} to {e.isoformat()}: {str(ex)[:200]}")
         d = e + timedelta(days=1)
+    # A report that parses but holds none of our schemes means the check didn't
+    # happen; say so instead of reporting a clean check of nothing.
+    weekdays = any((frm + timedelta(days=k)).weekday() < 5 for k in range((to - frm).days + 1))
+    if not rows and not errors and codes and weekdays:
+        msg = f"AMFI's history report for {frm.isoformat()} to {to.isoformat()} had no NAVs for the tracked schemes"
+        log.warning("%s", msg)
+        errors.append(msg)
     status = {"ok": not errors, "from": frm.isoformat(), "to": to.isoformat(), "rows": rows, "errors": errors}
     return out, status
 
@@ -213,7 +220,17 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
     dated = [s.nav_date for s in schemes if s.nav_date]
     if not dated:
         raise BuildError("AMFI's NAVAll.txt had no dated NAVs")
-    max_date = max(dated)
+    # The first live run (Saturday 26-Sep-2026) found NAVs dated the next day.
+    # They're kept as AMFI published them, but the build's own date never runs
+    # ahead of the day it ran.
+    ahead = [s for s in schemes if s.nav_date and s.nav_date > today]
+    if ahead:
+        log.warning("NAVAll: %d schemes have a NAV dated after today (%s), e.g. %s", len(ahead), today,
+                    [(s.code, s.nav_date.isoformat()) for s in ahead[:5]])
+    current = [d for d in dated if d <= today]
+    if not current:
+        raise BuildError(f"Every NAV in AMFI's NAVAll.txt is dated after today ({today}); not publishing.")
+    max_date = max(current)
     age = (today - max_date).days
     if age > cfg["max_navall_age_days"]:
         raise BuildError(
@@ -322,6 +339,10 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
             "backfill": "https://api.mfapi.in",
         },
         "navall_columns": header,
+        "navall_ahead": {
+            "count": len(ahead),
+            "examples": [{"code": s.code, "name": s.name, "date": s.nav_date.isoformat()} for s in ahead[:10]],
+        },
         "counts": {
             "schemes_in_file": len(schemes),
             "active": len(active),

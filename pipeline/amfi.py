@@ -10,7 +10,11 @@ Scheme - Large Cap Fund)") and fund-house lines mixed in between the data rows.
 
 Columns are located by their header names, never by position. On 19-Aug-2026
 AMFI inserted Plan and Option columns before the NAV, which broke parsers that
-counted fields; this one reads the header and carries on.
+counted fields; this one reads the header and carries on. The history report
+changed too: the first live run (26-Sep-2026) got
+    Scheme Code;NAV Name;Plan;Option;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Net Asset Value;Date
+where it used to have Scheme Name, and Repurchase Price and Sale Price are gone.
+Each parser asks only for the columns it uses.
 """
 from __future__ import annotations
 
@@ -43,6 +47,8 @@ SECTION_RE = re.compile(r"^(?P<section>[^()]*?Schemes?)\s*\((?P<category>.+)\)\s
 IDCW_RE = re.compile(r"idcw|dividend|\bdiv\b|payout|reinvest|bonus|income distribution", re.I)
 DIRECT_RE = re.compile(r"\bdirect\b|\bdir\b", re.I)
 DATE_FORMATS = ("%d-%b-%Y", "%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%B-%Y")
+NAVALL_NEEDS = frozenset({"code", "name", "nav", "date"})
+HISTORY_NEEDS = frozenset({"code", "nav", "date"})     # its name column is only for people
 
 
 class AmfiError(Exception):
@@ -96,13 +102,13 @@ def _norm(h: str) -> str:
     return re.sub(r"\s+", " ", h)
 
 
-def _column_map(header: list[str]) -> dict[str, int]:
+def _column_map(header: list[str], needs=NAVALL_NEEDS) -> dict[str, int]:
     idx: dict[str, int] = {}
     for i, raw in enumerate(header):
         h = _norm(raw)
         if h == "scheme code":
             idx["code"] = i
-        elif h == "scheme name":
+        elif h in ("scheme name", "nav name"):
             idx["name"] = i
         elif h.startswith("isin div payout"):
             idx["isin_growth"] = i
@@ -116,7 +122,7 @@ def _column_map(header: list[str]) -> dict[str, int]:
             idx["nav"] = i
         elif h == "date":
             idx["date"] = i
-    missing = {"code", "name", "nav", "date"} - idx.keys()
+    missing = set(needs) - idx.keys()
     if missing:
         raise AmfiFormatError(
             f"AMFI's header no longer has these columns: {sorted(missing)}. Header was: {header}"
@@ -150,7 +156,7 @@ def _isin(s: str) -> str | None:
     return s if len(s) == 12 and s[:2].isalpha() else None
 
 
-def _scan(text: str):
+def _scan(text: str, needs=NAVALL_NEEDS):
     """Yield ('header', fields, colmap) once, then ('row', fields, context) for each data row."""
     colmap = None
     section = category = amc = ""
@@ -162,7 +168,7 @@ def _scan(text: str):
         if colmap is None:
             if _norm(line).startswith("scheme code;"):
                 header = [f.strip() for f in line.split(";")]
-                colmap = _column_map(header)
+                colmap = _column_map(header, needs)
                 yield "header", header, colmap
             continue
         if ";" in line:
@@ -197,7 +203,7 @@ def parse_navall(text: str) -> tuple[list[Scheme], list[str]]:
     header: list[str] = []
     cm: dict[str, int] = {}
     seen: set[int] = set()
-    for kind, a, b in _scan(text):
+    for kind, a, b in _scan(text, NAVALL_NEEDS):
         if kind == "header":
             header, cm = a, b
             continue
@@ -230,7 +236,7 @@ def parse_history(text: str, codes: set[int] | None = None) -> dict[int, dict[da
     """Parse AMFI's NAV history report into {scheme code: {date: nav}}."""
     out: dict[int, dict[date, float]] = {}
     cm: dict[str, int] = {}
-    for kind, a, b in _scan(text):
+    for kind, a, b in _scan(text, HISTORY_NEEDS):
         if kind == "header":
             cm = b
             continue

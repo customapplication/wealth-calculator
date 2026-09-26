@@ -39,6 +39,36 @@ def test_old_format_reads_plan_and_option_from_name():
     assert by[120004].category == "Other Scheme - Other ETFs"             # double space collapsed
 
 
+# The headers AMFI served to the first live run (GitHub Actions, 26 Sep 2026),
+# copied from its log. navall_new.txt and history_live.txt start with exactly
+# these lines; their data rows follow the same layout with illustrative values.
+LIVE_NAVALL_HEADER = ["Scheme Code", "ISIN Div Payout/ ISIN Growth", "ISIN Div Reinvestment", "Scheme Name",
+                      "Plan", "Option", "Net Asset Value", "Date"]
+LIVE_HISTORY_HEADER = ["Scheme Code", "NAV Name", "Plan", "Option", "ISIN Div Payout/ISIN Growth",
+                       "ISIN Div Reinvestment", "Net Asset Value", "Date"]
+
+
+def test_fixtures_start_with_the_live_headers():
+    _, header = amfi.parse_navall((FIXTURES / "navall_new.txt").read_text(encoding="utf-8"))
+    assert header == LIVE_NAVALL_HEADER
+    first = (FIXTURES / "history_live.txt").read_text(encoding="utf-8").splitlines()[0]
+    assert first.split(";") == LIVE_HISTORY_HEADER
+
+
+def test_history_report_in_the_live_layout():
+    # "NAV Name" instead of "Scheme Name", Plan and Option added, the price columns gone
+    out = amfi.parse_history((FIXTURES / "history_live.txt").read_text(encoding="utf-8"), codes={122639, 122640, 555555})
+    assert out[122639] == {date(2026, 9, 21): 91.50, date(2026, 9, 22): 91.80}
+    assert out[122640] == {date(2026, 9, 22): 85.00}
+    assert out[555555] == {date(2026, 9, 27): 1010.1234}
+
+
+def test_history_report_needs_only_code_nav_and_date():
+    assert amfi.parse_history("Scheme Code;Net Asset Value;Date\n7;12.5;22-Sep-2026\n") == {7: {date(2026, 9, 22): 12.5}}
+    with pytest.raises(amfi.AmfiFormatError, match="nav"):
+        amfi.parse_history("Scheme Code;NAV Name;Date\n7;X;22-Sep-2026\n")
+
+
 def test_history_report_filters_codes():
     out = amfi.parse_history((FIXTURES / "history_sample.txt").read_text(), codes={122639, 122640})
     assert out[122639] == {date(2026, 9, 21): 91.50, date(2026, 9, 22): 91.80}
