@@ -1,13 +1,16 @@
-/* An in-memory stand-in for the Apps Script services Code.gs uses, so it can be
-   tested with plain Node. It copies the Sheets behaviour the script depends on:
+/* An in-memory stand-in for the Apps Script services Code.gs and Archive.gs use,
+   so they can be tested with plain Node. It copies the Sheets behaviour the script depends on:
    getRange() throws past the sheet's edge, a new tab is 1000 x 26, a value typed
    into an ordinary cell is read the way Sheets reads typing (= and + start a
    formula, digits become a number, 2026-09-25 becomes a date), and a cell
-   formatted as plain text (@) keeps exactly what was written. */
+   formatted as plain text (@) keeps exactly what was written. Its Drive keeps
+   trashed items in folder listings, as DriveApp does, and byte arrays are
+   signed (-128..127), as Apps Script's are. */
 'use strict';
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const crypto = require('crypto');
 
 class Range {
   constructor(sh, row, col, nr, nc) {
@@ -106,6 +109,73 @@ class Spreadsheet {
   getName() { return 'Test Sheet'; }
 }
 
+/* ---------- Drive ---------- */
+const toBuf = bytes => Buffer.from(bytes.map(b => b & 255));
+const signed = buf => Array.from(buf, b => (b > 127 ? b - 256 : b));
+const iter = arr => { let i = 0; const a = arr.slice(); return { hasNext: () => i < a.length, next: () => a[i++] }; };
+
+class Blob {
+  constructor(bytes, type, name) { this.buf = Buffer.isBuffer(bytes) ? bytes : toBuf(bytes); this.type = type || null; this.name = name || null; }
+  getBytes() { return signed(this.buf); }
+  getContentType() { return this.type; }
+  getName() { return this.name; }
+  setName(n) { this.name = n; return this; }
+  getDataAsString() { return this.buf.toString('utf8'); }
+}
+
+let driveIds = 0;
+class DriveFile {
+  constructor(blob, parent) { this.id = 'file' + (++driveIds); this.name = blob.getName(); this.blob = blob; this.parent = parent; this.description = ''; this.trashed = false; }
+  getId() { return this.id; }
+  getName() { return this.name; }
+  setName(n) { this.name = n; return this; }
+  getSize() { return this.blob.buf.length; }
+  getBlob() { return this.blob; }
+  getMimeType() { return this.blob.getContentType(); }
+  getDescription() { return this.description; }
+  setDescription(d) { this.description = d; return this; }
+  isTrashed() { return this.trashed; }
+  setTrashed(t) { this.trashed = !!t; return this; }
+}
+class DriveFolder {
+  constructor(name, parent) { this.id = 'folder' + (++driveIds); this.name = name; this.parent = parent; this.folders = []; this.files = []; this.trashed = false; }
+  getId() { return this.id; }
+  getName() { return this.name; }
+  setName(n) { this.name = n; return this; }
+  getUrl() { return 'https://drive.google.com/drive/folders/' + this.id; }
+  isTrashed() { return this.trashed; }
+  setTrashed(t) { this.trashed = !!t; return this; }
+  getFolders() { return iter(this.folders); }
+  getFoldersByName(n) { return iter(this.folders.filter(f => f.name === n)); }
+  getFiles() { return iter(this.files); }
+  getFilesByName(n) { return iter(this.files.filter(f => f.name === n)); }
+  createFolder(n) { const f = new DriveFolder(n, this); this.folders.push(f); return f; }
+  createFile(blob) { const f = new DriveFile(blob, this); this.files.push(f); return f; }
+  inTrash() { let x = this; while (x) { if (x.trashed) return true; x = x.parent; } return false; }
+}
+class Drive {
+  constructor() { this.root = new DriveFolder('My Drive', null); }
+  getRootFolder() { return this.root; }
+  all() { const out = []; const walk = f => { out.push(f); f.folders.forEach(walk); f.files.forEach(x => out.push(x)); }; walk(this.root); return out; }
+  getFolderById(id) { const f = this.all().find(x => x.id === id && x instanceof DriveFolder); if (!f) throw new Error('No item with the given ID could be found.'); return f; }
+  /** Test helper: every file not in the trash, as 'folder/sub/name'. */
+  paths() {
+    const out = [];
+    const walk = (f, pre) => {
+      if (f.trashed) return;
+      f.files.forEach(x => { if (!x.trashed) out.push(pre + x.name); });
+      f.folders.forEach(d => walk(d, pre + d.name + '/'));
+    };
+    walk(this.root, '');
+    return out.sort();
+  }
+  file(path) {
+    let f = this.root; const parts = path.split('/'); const name = parts.pop();
+    for (const p of parts) f = f.folders.find(d => d.name === p && !d.trashed);
+    return f && f.files.find(x => x.name === name && !x.trashed);
+  }
+}
+
 class Properties {
   constructor(init) { this.m = new Map(Object.entries(init || {})); }
   getProperty(k) { return this.m.has(k) ? this.m.get(k) : null; }
@@ -113,9 +183,10 @@ class Properties {
   deleteProperty(k) { this.m.delete(k); return this; }
 }
 
-/** A fresh Code.gs with its own Sheet and script properties. */
-function load(props) {
+/** A fresh copy of a script (Code.gs by default) with its own Sheet, Drive and script properties. */
+function load(props, file = 'Code.gs') {
   const ss = new Spreadsheet();
+  const drive = new Drive();
   const properties = new Properties(props);
   const lock = { held: 0, waitLock() { this.held++; }, releaseLock() { this.held--; } };
   const logs = [];
@@ -131,19 +202,26 @@ function load(props) {
       createTextOutput: s => ({ s, mime: null, setMimeType(m) { this.mime = m; return this; }, getContent() { return this.s; } })
     },
     Logger: { log: m => logs.push(String(m)) },
-    Utilities: { formatDate: d => d.toISOString() },
+    DriveApp: drive,
+    Utilities: {
+      formatDate: d => d.toISOString(),
+      base64Decode: s => signed(Buffer.from(s, 'base64')),
+      newBlob: (data, type, name) => new Blob(typeof data === 'string' ? Buffer.from(data, 'utf8') : data, type, name),
+      DigestAlgorithm: { MD5: 'md5', SHA_256: 'sha256' },
+      computeDigest: (alg, bytes) => signed(crypto.createHash(alg).update(typeof bytes === 'string' ? Buffer.from(bytes) : toBuf(bytes)).digest())
+    },
     Session: { getScriptTimeZone: () => 'Asia/Kolkata' },
     console
   };
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8'), ctx, { filename: 'Code.gs' });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), ctx, { filename: file });
   /** POST a body the way the site does; returns the parsed JSON answer. */
   const post = body => {
     const out = ctx.doPost({ postData: { contents: typeof body === 'string' ? body : JSON.stringify(body) } });
     if (out.mime !== 'application/json') throw new Error('Answer was not marked as JSON');
     return JSON.parse(out.getContent());
   };
-  return { ctx, ss, properties, lock, logs, post };
+  return { ctx, ss, drive, properties, lock, logs, post };
 }
 
 module.exports = { load, typed };

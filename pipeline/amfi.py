@@ -252,7 +252,8 @@ def parse_history(text: str, codes: set[int] | None = None) -> dict[int, dict[da
 # --------------------------------------------------------------------------- fetching
 
 def _get(session: requests.Session, url: str, params: dict | None = None,
-         timeout: int = 180, attempts: int = 4) -> str:
+         timeout: int = 180, attempts: int = 4, raw: bool = False):
+    """The response as text, or (text, bytes exactly as served) when raw=True."""
     last: Exception | None = None
     for i in range(attempts):
         try:
@@ -261,7 +262,7 @@ def _get(session: requests.Session, url: str, params: dict | None = None,
                 text = _decode(r.content)
                 if text.lstrip()[:1] == "<":
                     raise AmfiError(f"{url} returned a web page instead of data")
-                return text
+                return (text, r.content) if raw else text
             last = AmfiError(f"{url} answered HTTP {r.status_code}")
         except (requests.RequestException, AmfiError) as e:
             last = e
@@ -276,13 +277,19 @@ def _get(session: requests.Session, url: str, params: dict | None = None,
 
 def fetch_navall(session: requests.Session) -> tuple[str, str]:
     """Download NAVAll.txt, trying AMFI's two hosts. Returns (text, url used)."""
+    text, url, _ = fetch_navall_raw(session)
+    return text, url
+
+
+def fetch_navall_raw(session: requests.Session) -> tuple[str, str, bytes]:
+    """fetch_navall, plus the file's bytes exactly as AMFI served them (for the archive)."""
     errors = []
     for url in NAVALL_URLS:
         try:
-            text = _get(session, url)
+            text, content = _get(session, url, raw=True)
             if "scheme code" not in text[:600].lower():
                 raise AmfiFormatError(f"{url} did not start with the expected header")
-            return text, url
+            return text, url, content
         except AmfiError as e:
             log.warning("NAVAll from %s failed: %s", url, e)
             errors.append(str(e))

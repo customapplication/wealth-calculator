@@ -5,7 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Corpus planner</title>
 <meta name="description" content="Plan SIPs and SWPs, rank Indian mutual funds from AMFI NAVs, and track your own portfolio.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#F1F4F0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1526" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Corpus">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script>try{var t=localStorage.getItem('corpus-planner:theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,20 +23,42 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-plan" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 7.5h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8.6 12h.01M12 12h.01M15.4 12h.01M8.6 15.6h.01M12 15.6h.01M15.4 15.6h.01" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-explore" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.4 15.4 20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8 12.6v-1.8M10.5 12.6V8.4M13 12.6V9.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-portfolio" viewBox="0 0 24 24"><path d="M11 4a8 8 0 1 0 9 9h-9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3.2A8 8 0 0 1 20.8 10H14z" fill="currentColor"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.6A7.8 7.8 0 0 1 9.4 4.5a7.8 7.8 0 1 0 10.1 10.1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.1M12 19.1v2.1M4.9 4.9l1.5 1.5M17.6 17.6l1.5 1.5M2.8 12h2.1M19.1 12h2.1M4.9 19.1l1.5-1.5M17.6 6.4l1.5-1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-line" viewBox="0 0 24 24"><path d="M3.5 19.5h17" stroke="currentColor" stroke-opacity=".45" stroke-width="1.6" stroke-linecap="round"/><path d="M4 15.5l4.6-4.6 3.6 2.7L20 5.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-area" viewBox="0 0 24 24"><path d="M4 19.5v-4l4.6-4.6 3.6 2.7L20 5.8v13.7z" fill="currentColor" fill-opacity=".28"/><path d="M4 15.5l4.6-4.6 3.6 2.7L20 5.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bar" viewBox="0 0 24 24"><rect x="4" y="12.5" width="3.4" height="7.5" rx="1.1" fill="currentColor"/><rect x="8.9" y="8.5" width="3.4" height="11.5" rx="1.1" fill="currentColor"/><rect x="13.8" y="10.5" width="3.4" height="9.5" rx="1.1" fill="currentColor"/><rect x="18.7" y="4.5" width="3.4" height="15.5" rx="1.1" fill="currentColor" fill-opacity=".55"/></symbol>
+    <symbol id="i-hbar" viewBox="0 0 24 24"><rect x="3.5" y="4" width="16" height="3.4" rx="1.1" fill="currentColor"/><rect x="3.5" y="10.3" width="11" height="3.4" rx="1.1" fill="currentColor"/><rect x="3.5" y="16.6" width="6.5" height="3.4" rx="1.1" fill="currentColor"/></symbol>
+    <symbol id="i-donut" viewBox="0 0 24 24"><path d="M12 4.5a7.5 7.5 0 1 1-7.13 5.18" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M5.3 8.6A7.5 7.5 0 0 1 10.6 4.63" fill="none" stroke="currentColor" stroke-opacity=".45" stroke-width="3.4"/></symbol>
+    <symbol id="i-pie" viewBox="0 0 24 24"><path d="M11 3.6a8.4 8.4 0 1 0 9.4 9.4H11z" fill="currentColor" fill-opacity=".35"/><path d="M13.2 2.4a8.4 8.4 0 0 1 8.4 8.4h-8.4z" fill="currentColor"/></symbol>
+    <symbol id="i-table" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 9.8h17M3.5 14.4h17M9.2 9.8V19" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 7h9.5M18.5 7H20M4 17h3.5M12.5 17H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="7" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="17" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.6l4.4 4.4L19 7.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  </defs>
+</svg>
 <div class="app">
   <header class="top">
-    <div class="brand">
-      <h1>Corpus planner</h1>
-      <p>Indian mutual funds, from AMFI's own NAVs</p>
-    </div>
+    <a class="brand" href="#plan">
+      <img class="brand-mark" src="icons/icon.svg" alt="" width="38" height="38">
+      <span class="brand-text"><h1>Corpus planner</h1><span class="brand-tag">Indian mutual funds, from AMFI's own NAVs</span></span>
+    </a>
     <nav class="views" aria-label="Pages">
-      <a href="#plan" data-view="plan">Plan</a>
-      <a href="#explore" data-view="explore">Explore funds</a>
-      <a href="#portfolio" data-view="portfolio">My portfolio</a>
+      <a href="#plan" data-view="plan"><svg class="ic" aria-hidden="true"><use href="#i-plan"/></svg><span>Plan</span></a>
+      <a href="#explore" data-view="explore"><svg class="ic" aria-hidden="true"><use href="#i-explore"/></svg><span>Explore funds</span></a>
+      <a href="#portfolio" data-view="portfolio"><svg class="ic" aria-hidden="true"><use href="#i-portfolio"/></svg><span>My portfolio</span></a>
     </nav>
     <div class="top-actions">
       <a href="#portfolio" class="btn-quiet sync-chip" id="syncChip" hidden><span class="dot" aria-hidden="true"></span><span id="syncChipText">Saved to Sheet</span></a>
-      <button type="button" class="btn-quiet" id="themeToggle">Dark theme</button>
+      <button type="button" class="btn-icon" id="themeToggle" aria-label="Switch to the dark theme"><svg class="ic on-light" aria-hidden="true"><use href="#i-moon"/></svg><svg class="ic on-dark" aria-hidden="true"><use href="#i-sun"/></svg></button>
     </div>
   </header>
 
@@ -37,7 +68,8 @@
       <button type="button" class="btn-quiet" id="resetInputs">Reset inputs</button>
     </div>
   <div class="layout">
-    <aside class="rail" aria-label="Plan inputs">
+    <aside class="rail" id="planRail" aria-label="Plan inputs">
+      <div class="drawer-head"><div class="dh-text"><b>Edit your plan</b><span class="dh-sum" id="planSum" aria-live="polite"></span></div><button type="button" class="btn-main" data-drawer-close>Done</button></div>
       <section>
         <h2>What you invest</h2>
         <label class="field">
@@ -153,7 +185,8 @@
         <p class="statement2" id="statement2"></p>
         <div class="chart-bar">
           <div class="pills" id="pills" role="group" aria-label="Choose a return rate to explore"></div>
-          <div class="row">
+          <div class="row wrap">
+            <div id="planType"></div>
             <div class="seg" role="radiogroup" aria-label="Chart view">
               <label><input type="radio" name="chartMode" value="all"><span>All rates</span></label>
               <label><input type="radio" name="chartMode" value="one"><span>This rate</span></label>
@@ -212,6 +245,7 @@
       </div>
     </main>
   </div>
+  <button type="button" class="fab" data-drawer-open="planRail" aria-expanded="false" aria-controls="planRail"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg>Edit plan</button>
   <p class="foot">Projections assume the same return every month. Real markets swing, and a crash in the first few years of withdrawals hurts far more than one later on, so read each SWP result as the outcome for a steady version of that return. Taxes, exit loads and fund expenses are not included unless you add them in the engine. This is a planning tool, not investment advice.</p>
   </section>
 
@@ -220,21 +254,40 @@
       <div class="block">
         <div id="exFresh" class="fresh"></div>
         <div class="ex-filters" id="exFilters">
-          <label class="field ex-cat"><span class="lbl">Category</span><span class="box sel"><select id="exCat"></select></span></label>
-          <div class="field"><span class="lbl">Plan</span>
-            <div class="seg" role="radiogroup" aria-label="Plan">
+          <div class="field ex-cat"><span class="lbl">Category</span><span class="box sel"><select id="exCat"></select></span></div>
+          <div class="field ex-metric"><span class="lbl">Rank by</span><span class="box sel"><select id="exMetric"></select></span></div>
+          <button type="button" class="ex-toggle" id="exToggle" aria-expanded="false" aria-controls="exExtra"><span>More filters</span><span class="ex-toggle-sum" id="exToggleSum"></span><svg class="ic chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+          <div class="ex-extra" id="exExtra">
+          <div class="field"><span class="lbl" id="exPlanLbl">Plan</span>
+            <div class="seg block" role="radiogroup" aria-labelledby="exPlanLbl">
               <label><input type="radio" name="ex-plan" value="Direct"><span>Direct</span></label>
               <label><input type="radio" name="ex-plan" value="Regular"><span>Regular</span></label>
             </div>
           </div>
-          <label class="field"><span class="lbl">Rank by</span><span class="box sel"><select id="exMetric"></select></span></label>
-          <label class="field"><span class="lbl">Show</span><span class="box sel"><select id="exTop"><option value="5">Top 5</option><option value="10">Top 10</option><option value="20">Top 20</option><option value="0">All</option></select></span></label>
-          <label class="field"><span class="lbl">Running for at least</span><span class="box sel"><select id="exAge"><option value="0">Any length</option><option value="3">3 years</option><option value="5">5 years</option><option value="10">10 years</option></select></span></label>
-          <label class="field ex-q"><span class="lbl">Find a fund</span><span class="box"><input id="exQ" type="search" placeholder="Name or fund house" autocomplete="off"></span></label>
+          <div class="field"><span class="lbl" id="exTopLbl">Show</span>
+            <div class="seg block" role="radiogroup" aria-labelledby="exTopLbl">
+              <label><input type="radio" name="ex-top" value="5"><span>Top 5</span></label>
+              <label><input type="radio" name="ex-top" value="10"><span>10</span></label>
+              <label><input type="radio" name="ex-top" value="20"><span>20</span></label>
+              <label><input type="radio" name="ex-top" value="0"><span>All</span></label>
+            </div>
+          </div>
+          <div class="field"><span class="lbl" id="exAgeLbl">Running for at least</span>
+            <div class="seg block" role="radiogroup" aria-labelledby="exAgeLbl">
+              <label><input type="radio" name="ex-age" value="0"><span>Any</span></label>
+              <label><input type="radio" name="ex-age" value="3"><span>3 yrs</span></label>
+              <label><input type="radio" name="ex-age" value="5"><span>5 yrs</span></label>
+              <label><input type="radio" name="ex-age" value="10"><span>10 yrs</span></label>
+            </div>
+          </div>
+          <label class="field ex-q"><span class="lbl">Find a fund</span><span class="box"><svg class="ic pre-ic" aria-hidden="true"><use href="#i-search"/></svg><input id="exQ" type="search" placeholder="Name or fund house" autocomplete="off"></span></label>
+          </div>
         </div>
       </div>
       <div class="block flush">
-        <div class="scroll"><table class="pick funds" id="exTable"></table></div>
+        <div class="ex-viewbar"><span class="ex-count" id="exCount"></span><div id="exView"></div></div>
+        <div class="scroll" id="exTableWrap"><table class="pick funds" id="exTable"></table><ul class="fcards" id="exCards" aria-label="Funds, ranked"></ul></div>
+        <div class="ex-chart" id="exRankWrap" hidden><div class="chart-box auto" id="exRankBox"><canvas id="exRank" role="img" aria-label="Funds ranked, as bars"></canvas></div></div>
         <p class="ex-more" id="exMore" role="status"></p>
       </div>
       <div class="block" id="exDetail" hidden></div>
@@ -259,7 +312,8 @@
 
   <section class="view" id="view-portfolio" data-view="portfolio" hidden>
     <div class="layout">
-      <aside class="rail" aria-label="Add investments">
+      <aside class="rail" id="pfRail" aria-label="Add investments">
+        <div class="drawer-head"><div class="dh-text"><b>Add, import and sync</b><span class="dh-sum" id="pfSum" aria-live="polite"></span></div><button type="button" class="btn-main" data-drawer-close>Done</button></div>
         <section>
           <h2>Add an investment</h2>
           <div class="field">
@@ -347,16 +401,37 @@
           <p class="statement2" id="pfStatement2"></p>
           <div id="pfChartWrap" hidden>
             <div class="chart-bar">
-              <span class="box sel"><select id="pfScope" aria-label="Show on the chart"></select></span>
-              <div class="seg" role="radiogroup" aria-label="Chart view">
-                <label><input type="radio" name="pf-mode" value="value" checked><span>Worth and money in</span></label>
-                <label><input type="radio" name="pf-mode" value="gain"><span>Gain</span></label>
+              <div class="field pf-scope"><span class="lbl sr-only">Show on the chart</span><span class="box sel"><select id="pfScope"></select></span></div>
+              <div class="row wrap">
+                <div class="seg" role="radiogroup" aria-label="Chart view">
+                  <label><input type="radio" name="pf-mode" value="value" checked><span>Worth and money in</span></label>
+                  <label><input type="radio" name="pf-mode" value="gain"><span>Gain</span></label>
+                </div>
+                <div id="pfType"></div>
               </div>
             </div>
             <div class="chart-box" id="pfChartBox"><canvas id="pfChart" role="img" aria-label="Portfolio value over time"></canvas></div>
           </div>
         </div>
         <div class="block flush" id="pfFigures"></div>
+        <div class="block" id="pfMix" hidden>
+          <div class="mix-head">
+            <h3>What you hold</h3>
+            <div class="row wrap">
+              <div class="field mix-by"><span class="lbl sr-only">Group by</span><span class="box sel"><select id="pfMixBy">
+                <option value="fund" data-label="By investment">By investment</option>
+                <option value="asset" data-label="By asset class">By asset class</option>
+                <option value="cat" data-label="By category">By category</option>
+                <option value="amc" data-label="By fund house">By fund house</option>
+              </select></span></div>
+              <div id="pfMixType"></div>
+            </div>
+          </div>
+          <div class="mix-body">
+            <div class="chart-box mix-chart" id="pfMixBox"><canvas id="pfMixChart" role="img" aria-label="What you hold, by share of today's value"></canvas></div>
+            <ul class="mix-legend" id="pfMixLegend"></ul>
+          </div>
+        </div>
         <div class="block" id="pfHoldings" hidden>
           <h3>Investments</h3>
           <div class="scroll"><table id="pfTable"></table></div>
@@ -364,9 +439,11 @@
         </div>
       </main>
     </div>
+    <button type="button" class="fab" data-drawer-open="pfRail" aria-expanded="false" aria-controls="pfRail"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add or import</button>
   </section>
 
 </div>
+<div class="scrim" aria-hidden="true"></div>
 <script src="js/common.js"></script>
 <script src="js/planner.js"></script>
 <script src="js/explore.js"></script>

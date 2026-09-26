@@ -363,6 +363,13 @@ const schedule = () => { clearTimeout(timer); timer = setTimeout(recalc, 80); };
 function renderAll() {
   renderChips(); syncOutputs(); renderBanner(); renderStatement(); renderPills();
   renderChart(); renderFigures(); renderNotes(); renderCompare(); renderLedger(); renderLogic(); renderCodeStatus();
+  renderSum();
+}
+// One line at the top of the input panel on phones, so the result stays in view while editing.
+function renderSum() {
+  const r = sel(), el = $('#planSum');
+  if (!r || !el) return;
+  el.textContent = `${cmp(r.res.summary.corpusAtSipEnd)} at ${fmtNum(r.rate)}% after ${plural(r.p.sipYears, 'year')}`;
 }
 function renderChips() {
   const one = state.rates.length <= 1;
@@ -466,6 +473,9 @@ function yearTitle(y) {
   const a = ageAt(y);
   return `End of year ${y}` + (a != null ? `, age ${a}` : '');
 }
+// Chart type: the same corpus as lines, filled areas, or yearly columns.
+const PLAN_TYPES = [['line', 'Line', 'line'], ['area', 'Area', 'area'], ['bar', 'Bars', 'bar']];
+let planType = window.MF ? MF.pref('plan', 'line', PLAN_TYPES.map(x => x[0])) : 'line';
 function renderChart() {
   const box = $('#chartBox');
   if (typeof window.Chart === 'undefined') {
@@ -479,33 +489,57 @@ function renderChart() {
   const gold = cssVar('--c2'), wd = cssVar('--wd');
   const cur = sel(); if (!cur) return;
   const maxLen = Math.max(...results.map(r => r.years.length));
-  const labels = Array.from({ length: maxLen + 1 }, (_, i) => i);
   const start = cur.p.existingCorpus;
-  let datasets;
-  if (state.chartMode === 'all') {
+  const type = planType, bars = type === 'bar';
+  const narrow = window.matchMedia && window.matchMedia('(max-width: 760px)').matches;
+  const corpusAt = (r, y) => y === 0 ? r.p.existingCorpus : y <= r.years.length ? (real ? r.years[y - 1].real : r.years[y - 1].closing) : null;
+  const investedAt = (r, y) => y === 0 ? start : y <= r.years.length ? (real ? r.years[y - 1].realInvested : r.years[y - 1].invested) : null;
+  const outAt = (r, y) => y === 0 ? 0 : y <= r.years.length ? (real ? r.years[y - 1].realWithdrawn : r.years[y - 1].cumWithdrawn) : null;
+  const barSpec = { type: 'bar', borderRadius: 4, borderSkipped: 'start', maxBarThickness: 22, categoryPercentage: .82, barPercentage: .9, order: 2 };
+  let years, datasets;
+  if (state.chartMode === 'all' && bars) {
+    // Grouped columns every few years, so each group stays readable.
+    const want = narrow ? 6 : 10, raw = Math.ceil(maxLen / want);
+    const step = [1, 2, 5, 10].find(s => s >= raw) || raw;
+    years = [];
+    for (let y = step; y <= maxLen; y += step) years.push(y);
+    if (years[years.length - 1] !== maxLen) years.push(maxLen);
+    datasets = results.map((r, idx) => Object.assign({}, barSpec, { label: fmtNum(r.rate) + '% a year', data: years.map(y => corpusAt(r, y)), backgroundColor: colors[idx], hoverBackgroundColor: colors[idx] }));
+    datasets.push({ type: 'line', label: 'Money you put in', data: years.map(y => investedAt(cur, y)), borderColor: muted, backgroundColor: muted, borderDash: [5, 5], borderWidth: 1.5, pointRadius: 3, pointBackgroundColor: sheet, pointBorderWidth: 1.5, tension: 0, order: 0 });
+  } else if (state.chartMode === 'all') {
+    years = Array.from({ length: maxLen + 1 }, (_, i) => i);
     datasets = results.map((r, idx) => {
       const isSel = r === cur;
       return {
-        label: fmtNum(r.rate) + '% a year',
-        data: [r.p.existingCorpus, ...r.years.map(y => real ? y.real : y.closing)],
-        borderColor: colors[idx], backgroundColor: colors[idx],
-        borderWidth: isSel ? 3 : 1.6, pointRadius: 0, pointHoverRadius: 4, tension: .25, order: isSel ? 0 : 1
+        type: 'line', label: fmtNum(r.rate) + '% a year',
+        data: years.map(y => corpusAt(r, y)),
+        borderColor: colors[idx], backgroundColor: type === 'area' && isSel ? hexA(colors[idx], .12) : colors[idx],
+        fill: type === 'area' && isSel ? 'origin' : false,
+        borderWidth: isSel ? 3 : type === 'area' ? 1.4 : 1.6, pointRadius: 0, pointHoverRadius: 4, tension: .25, order: isSel ? 0 : 1
       };
     });
-    datasets.push({ label: 'Money you put in', data: [start, ...cur.years.map(y => real ? y.realInvested : y.invested)], borderColor: muted, backgroundColor: muted, borderDash: [5, 5], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 3, tension: 0, order: 2 });
+    datasets.push({ type: 'line', label: 'Money you put in', data: years.map(y => investedAt(cur, y)), borderColor: muted, backgroundColor: muted, borderDash: [5, 5], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 3, tension: 0, order: 2 });
   } else {
+    years = Array.from({ length: cur.years.length + 1 }, (_, i) => i);
     const c = colors[results.indexOf(cur)];
-    datasets = [
-      { label: 'Corpus', data: [start, ...cur.years.map(y => real ? y.real : y.closing)], borderColor: c, backgroundColor: hexA(c, .16), fill: 'origin', borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 4, tension: .25 },
-      { label: 'Money you put in', data: [start, ...cur.years.map(y => real ? y.realInvested : y.invested)], borderColor: gold, backgroundColor: gold, borderDash: [6, 5], borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 3, tension: 0 }
-    ];
-    if (cur.p.swpEnabled) datasets.push({ label: 'Money you took out', data: [0, ...cur.years.map(y => real ? y.realWithdrawn : y.cumWithdrawn)], borderColor: wd, backgroundColor: wd, borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 3, tension: .2 });
+    const corpus = years.map(y => corpusAt(cur, y));
+    datasets = [bars
+      ? Object.assign({}, barSpec, { label: 'Corpus', data: corpus, backgroundColor: hexA(c, .85), hoverBackgroundColor: c, maxBarThickness: 18, categoryPercentage: .9, barPercentage: .92 })
+      : { type: 'line', label: 'Corpus', data: corpus, borderColor: c, backgroundColor: hexA(c, .12), fill: type === 'area' ? 'origin' : false, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 4, tension: .25, order: 1 }];
+    datasets.push({ type: 'line', label: 'Money you put in', data: years.map(y => investedAt(cur, y)), borderColor: gold, backgroundColor: type === 'area' ? hexA(gold, .1) : gold, fill: type === 'area' ? 'origin' : false, borderDash: [6, 5], borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 3, tension: 0, order: 0 });
+    if (cur.p.swpEnabled) datasets.push({ type: 'line', label: 'Money you took out', data: years.map(y => outAt(cur, y)), borderColor: wd, backgroundColor: wd, borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 3, tension: .2, order: 0 });
   }
-  const swpStart = cur.p.swpEnabled ? cur.p.sipYears + cur.p.swpGapYears : null;
+  // Where withdrawals begin, as a position on the x axis (between columns for bars).
+  const swpYear = cur.p.swpEnabled ? cur.p.sipYears + cur.p.swpGapYears : null;
+  let swpStart = null;
+  if (swpYear != null) {
+    if (!bars) swpStart = swpYear;
+    else { const i = years.findIndex(y => y > swpYear); if (i > 0) swpStart = i - 0.5; else if (i === 0) swpStart = -0.5; }
+  }
   if (chart) { chart.destroy(); chart = null; }
   chart = new window.Chart($('#chart'), {
-    type: 'line',
-    data: { labels, datasets },
+    type: bars ? 'bar' : 'line',
+    data: { labels: years, datasets },
     plugins: [phaseShade],
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -513,17 +547,17 @@ function renderChart() {
       interaction: { mode: 'index', intersect: false },
       layout: { padding: { top: 4, right: 4 } },
       plugins: {
-        legend: { position: 'bottom', labels: { color: ink2, usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, padding: 16, font: { family: 'IBM Plex Sans', size: 12.5 } } },
+        legend: { position: 'bottom', labels: { color: ink2, usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, padding: narrow ? 10 : 16, font: { family: 'IBM Plex Sans', size: narrow ? 11.5 : 12.5 } } },
         tooltip: {
           backgroundColor: sheet, titleColor: ink, bodyColor: ink2, borderColor: rule2, borderWidth: 1, padding: 10, boxPadding: 4, usePointStyle: true,
           titleFont: { family: 'IBM Plex Sans', weight: '600', size: 13 }, bodyFont: { family: 'IBM Plex Sans', size: 12.5 },
-          callbacks: { title: items => yearTitle(items[0].dataIndex), label: c => ` ${c.dataset.label}: ${cmp(c.parsed.y)}` }
+          callbacks: { title: items => yearTitle(+items[0].label), label: c => c.parsed.y == null ? null : ` ${c.dataset.label}: ${cmp(c.parsed.y)}` }
         },
         phaseShade: { start: swpStart, fill: hexA(wd, .06), line: hexA(wd, .5), text: wd }
       },
       scales: {
-        x: { grid: { display: false }, border: { color: rule2 }, ticks: { color: muted, maxRotation: 0, autoSkipPadding: 14, font: { family: 'IBM Plex Sans', size: 11.5 }, callback: v => v === 0 ? 'Now' : 'Yr ' + v } },
-        y: { grid: { color: rule }, border: { display: false }, ticks: { color: muted, maxTicksLimit: 6, font: { family: 'IBM Plex Sans', size: 11.5 }, callback: v => tick(v) } }
+        x: { grid: { display: false }, border: { color: rule2 }, ticks: { color: muted, maxRotation: 0, autoSkipPadding: 14, font: { family: 'IBM Plex Sans', size: 11.5 }, callback(v) { const y = +this.getLabelForValue(v); return y === 0 ? 'Now' : 'Yr ' + y; } } },
+        y: { grid: { color: rule }, border: { display: false }, beginAtZero: true, ticks: { color: muted, maxTicksLimit: 6, font: { family: 'IBM Plex Sans', size: 11.5 }, callback: v => tick(v) } }
       }
     }
   });
@@ -812,6 +846,10 @@ function pushStateToInputs() {
   $$('#view-plan input[type=radio]').forEach(el => { if (el.name in state) el.checked = String(state[el.name]) === el.value; });
 }
 function bindControls() {
+  if (window.MF && $('#planType')) {
+    MF.typeSwitch($('#planType'), { label: 'Chart type', value: planType, types: PLAN_TYPES,
+      onChange: v => { planType = v; MF.setPref('plan', v); renderChart(); } });
+  }
   $$('#view-plan [data-key]').forEach(el => {
     const k = el.dataset.key;
     el.addEventListener('input', () => {

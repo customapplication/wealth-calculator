@@ -49,6 +49,11 @@ jobs:
 
       - name: Build fund data from AMFI
         run: python pipeline/build.py
+        env:
+          # Optional: copies of AMFI's data in your Google Drive (sheets/Archive.gs).
+          # Without these two repository secrets the archive step is skipped.
+          ARCHIVE_URL: ${{ secrets.ARCHIVE_URL }}
+          ARCHIVE_SECRET: ${{ secrets.ARCHIVE_SECRET }}
 
       - name: Keep NAV history for the next run
         # saved even if the build failed, so a long first backfill isn't lost
@@ -73,3 +78,17 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  keepalive:
+    # GitHub pauses scheduled workflows in a public repository after 60 days
+    # without activity. Switching this workflow on again from its own nightly
+    # run resets that clock, so the schedule never lapses. It needs no commits.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Keep the nightly schedule switched on
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method PUT "repos/${{ github.repository }}/actions/workflows/nightly.yml/enable"
