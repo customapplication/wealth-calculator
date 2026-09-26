@@ -326,7 +326,8 @@ window.Sync = (() => {
       if (!window.confirm('Stop syncing this device? Your plan and portfolio stay on this device and in your Sheet.')) return;
       disconnect(); msg('Disconnected. This device no longer syncs.');
     });
-    $('#syncChip').addEventListener('click', () => setTimeout(() => { const b = $('#syncBox'); if (b) b.scrollIntoView({ block: 'start' }); }, 50));
+    // the header chip opens the Google Sheet section (inside the slide-up panel on phones)
+    $('#syncChip').addEventListener('click', () => setTimeout(() => { if (window.Shell) window.Shell.openDrawer('pfRail', '#syncBox'); }, 50));
   }
 
   /* ---------- wiring ---------- */

@@ -2,7 +2,8 @@
 (() => {
   'use strict';
   const { $, $$, esc, full, cmp, pct, units, isoToMs, msToIso, fmtDate, fmtMonth, todayMs, store, hexA, colors,
-    loadFunds, loadHistory, idxOnOrBefore, idxOnOrAfter, xirr, timeAxis, tooltip, download, shortCategory, DAY } = MF;
+    loadFunds, loadHistory, idxOnOrBefore, idxOnOrAfter, xirr, timeAxis, tooltip, download, shortCategory, groupLabel, DAY,
+    narrow, pref, setPref, typeSwitch, picker, refreshPickers } = MF;
 
   const KEY = 'mf-portfolio:v1';
   const CAS_FORMAT = 'mf-corpus-planner/cas-v1';
@@ -12,7 +13,14 @@
 
   let P = store.json(KEY, { holdings: [] });
   if (!P || !Array.isArray(P.holdings)) P = { holdings: [] };
-  let D = null, inited = false, chart = null, sel = null, results = [], computeToken = 0, lastSnapshot = null;
+  let D = null, inited = false, chart = null, mixChart = null, sel = null, results = [], computeToken = 0, lastSnapshot = null;
+  const TIME_TYPES = [['line', 'Line', 'line'], ['area', 'Area', 'area'], ['bar', 'Bars', 'bar']];
+  const MIX_TYPES = [['donut', 'Donut', 'donut'], ['pie', 'Pie', 'pie'], ['bar', 'Bars', 'hbar']];
+  const charts = {
+    time: pref('pfTime', 'area', TIME_TYPES.map(x => x[0])),
+    mix: pref('pfMix', 'donut', MIX_TYPES.map(x => x[0])),
+    by: pref('pfMixBy', 'fund', ['fund', 'asset', 'cat', 'amc'])
+  };
   const view = Object.assign({ scope: 'all', mode: 'value' }, store.json(KEY + ':view', {}));
   const save = () => {
     if (!store.set(KEY, JSON.stringify(P))) $('#pfAddMsg').textContent = "Couldn't save in this browser (storage is full or blocked). Download a backup.";
@@ -145,7 +153,7 @@
     const list = await Promise.all(P.holdings.map(buildOne));
     if (token !== computeToken) return;
     results = list;
-    renderSummary(); renderTable(); renderChart(); renderNotes();
+    renderSummary(); renderTable(); renderChart(); renderMix(); renderNotes();
     publishValuation();
   }
 
@@ -171,8 +179,10 @@
     $('#pfStatement').innerHTML = 'Nothing here yet.';
     $('#pfStatement2').innerHTML = 'Add a SIP on the left and it will be valued with AMFI NAVs from its first instalment. For exact units and amounts, import your CAS statement instead.';
     $('#pfFigures').innerHTML = ''; $('#pfTable').innerHTML = ''; $('#pfNotes').innerHTML = '';
-    $('#pfChartWrap').hidden = true; $('#pfHoldings').hidden = true;
+    $('#pfChartWrap').hidden = true; $('#pfHoldings').hidden = true; $('#pfMix').hidden = true;
     if (chart) { chart.destroy(); chart = null; }
+    if (mixChart) { mixChart.destroy(); mixChart = null; }
+    $('#pfSum').textContent = 'Nothing added yet';
     publishValuation();
   }
 
@@ -193,6 +203,8 @@
   function renderSummary() {
     const t = totals(results);
     $('#pfChartWrap').hidden = false; $('#pfHoldings').hidden = false;
+    const count = results.filter(r => !r.error).length;
+    $('#pfSum').textContent = t.first == null ? '' : `${cmp(t.value)} today across ${count} investment${count === 1 ? '' : 's'}`;
     if (t.first == null) { $('#pfStatement').innerHTML = "None of these investments could be valued yet."; $('#pfStatement2').innerHTML = ''; $('#pfFigures').innerHTML = ''; return; }
     const out = t.moneyOut > 0 ? ` and taken out <span class="out">${cmp(t.moneyOut)}</span>` : '';
     const g = t.gain >= 0 ? `a gain of <span class="out">${cmp(t.gain)}</span>` : `a loss of <span class="out bad">${cmp(-t.gain)}</span>`;
@@ -210,19 +222,19 @@
   }
 
   function renderTable() {
-    const head = '<thead><tr><th>Investment</th><th>Units</th><th>Put in, net</th><th>Worth</th><th>Gain</th><th>XIRR</th><th>NAV date</th><th></th></tr></thead>';
+    const head = '<thead><tr><th>Investment</th><th>Units</th><th>Put in, net</th><th>Worth</th><th>Gain</th><th>XIRR</th><th>NAV date</th><th><span class="sr-only">Remove</span></th></tr></thead>';
     const rows = results.map(r => {
       const h = r.h;
       const name = esc(h.name || (D && D.byCode.get(r.code) ? D.byCode.get(r.code).n : `Scheme ${r.code}`));
       const first = `<td class="fund"><span class="fn">${name}</span><span class="fa">${describe(h)}</span></td>`;
-      const remove = `<td><button type="button" class="btn-x" data-remove="${h.id}" aria-label="Remove ${name}">Remove</button></td>`;
-      if (r.error) return `<tr>${first}<td colspan="6" class="bad">${esc(r.error)}</td>${remove}</tr>`;
+      const remove = `<td class="rm"><button type="button" class="btn-x" data-remove="${h.id}" aria-label="Remove ${name}" title="Remove">${MF.icon('close')}</button></td>`;
+      if (r.error) return `<tr>${first}<td colspan="6" class="bad err">${esc(r.error)}</td>${remove}</tr>`;
       const check = r.unitsMatch == null ? '' : r.unitsMatch
         ? '<small class="chk">matches statement</small>'
         : `<small class="chk bad">statement says ${units(h.closeUnits)}</small>`;
-      return `<tr>${first}<td>${units(r.units)}${check}</td><td>${full(r.net)}</td><td class="strong">${full(r.value)}</td>
-        <td class="${r.gain < 0 ? 'neg' : ''}">${full(r.gain)}</td><td class="${r.xirr != null && r.xirr < 0 ? 'neg' : ''}">${r.xirr != null ? pct(r.xirr, 1) : '—'}</td>
-        <td>${fmtDate(r.lastT)}</td>${remove}</tr>`;
+      return `<tr>${first}<td data-label="Units">${units(r.units)}${check}</td><td data-label="Put in, net">${full(r.net)}</td><td class="strong" data-label="Worth">${full(r.value)}</td>
+        <td class="${r.gain < 0 ? 'neg' : ''}" data-label="Gain">${full(r.gain)}</td><td class="${r.xirr != null && r.xirr < 0 ? 'neg' : ''}" data-label="XIRR">${r.xirr != null ? pct(r.xirr, 1) : '—'}</td>
+        <td data-label="NAV date">${fmtDate(r.lastT)}</td>${remove}</tr>`;
     }).join('');
     $('#pfTable').innerHTML = head + '<tbody>' + rows + '</tbody>';
   }
@@ -241,6 +253,8 @@
     s.innerHTML = opts.join('');
     if (view.scope !== 'all' && !P.holdings.some(h => h.id === view.scope)) view.scope = 'all';
     s.value = view.scope;
+    picker(s, { minWidth: 280, title: 'Show on the chart' });
+    refreshPickers();
     $$('input[name="pf-mode"]').forEach(r => { r.checked = r.value === view.mode; });
   }
 
@@ -251,11 +265,38 @@
     const s = series(list);
     if (chart) { chart.destroy(); chart = null; }
     if (!s) return;
-    const c = colors();
-    const ds = view.mode === 'gain'
-      ? [{ label: 'Gain', data: s.grid.map((t, i) => ({ x: t, y: s.value[i] - s.inv[i] })), borderColor: c.ok, backgroundColor: hexA(c.ok, .14), fill: 'origin', borderWidth: 2, pointRadius: 0, tension: 0 }]
+    const c = colors(), gain = view.mode === 'gain', type = charts.time, bars = type === 'bar';
+    const tip = Object.assign(tooltip(c), { callbacks: { title: it => bars ? it[0].label : fmtDate(it[0].parsed.x), label: ctx => ctx.parsed.y == null ? null : ` ${ctx.dataset.label}: ${cmp(ctx.parsed.y)}` } });
+    const legend = { display: !gain, position: 'bottom', labels: { color: c['ink-2'], usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, padding: 16, font: { family: 'IBM Plex Sans', size: 12.5 } } };
+    const yAxis = { grid: { color: c.rule }, border: { display: false }, ticks: { color: c.muted, maxTicksLimit: 6, font: { family: 'IBM Plex Sans', size: 11.5 }, callback: v => MF.tick(v) } };
+    if (bars) {
+      // One column per calendar year (its value at the year's end), and today.
+      const pts = [];
+      s.grid.forEach((t, i) => {
+        const y = new Date(t).getUTCFullYear();
+        const next = s.grid[i + 1];
+        if (next == null || new Date(next).getUTCFullYear() !== y) pts.push({ label: next == null ? 'Today' : String(y), i });
+      });
+      const val = i => gain ? s.value[i] - s.inv[i] : s.value[i];
+      const ds = [{ type: 'bar', label: gain ? 'Gain' : 'Worth', data: pts.map(p => val(p.i)),
+        backgroundColor: pts.map(p => gain && val(p.i) < 0 ? c.wd : hexA(c.stamp, .85)), hoverBackgroundColor: c.stamp,
+        borderRadius: 4, borderSkipped: 'start', maxBarThickness: 26, order: 2 }];
+      if (!gain) ds.push({ type: 'line', label: 'Money put in, net', data: pts.map(p => s.inv[p.i]), borderColor: c.c2, backgroundColor: c.c2, borderWidth: 1.8, pointRadius: 3, pointBackgroundColor: c.sheet, pointBorderWidth: 1.5, tension: 0, order: 1 });
+      chart = new window.Chart($('#pfChart'), {
+        type: 'bar', data: { labels: pts.map(p => p.label), datasets: ds },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend, tooltip: tip },
+          scales: { x: { grid: { display: false }, border: { color: c['rule-2'] }, ticks: { color: c.muted, maxRotation: 0, autoSkipPadding: 10, font: { family: 'IBM Plex Sans', size: 11.5 } } }, y: yAxis }
+        }
+      });
+      return;
+    }
+    const fill = type === 'area';
+    const ds = gain
+      ? [{ label: 'Gain', data: s.grid.map((t, i) => ({ x: t, y: s.value[i] - s.inv[i] })), borderColor: c.ok, backgroundColor: hexA(c.ok, .12), fill: fill ? 'origin' : false, borderWidth: 2, pointRadius: 0, tension: 0 }]
       : [
-        { label: 'Worth', data: s.grid.map((t, i) => ({ x: t, y: s.value[i] })), borderColor: c.stamp, backgroundColor: hexA(c.stamp, .14), fill: 'origin', borderWidth: 2.2, pointRadius: 0, tension: 0 },
+        { label: 'Worth', data: s.grid.map((t, i) => ({ x: t, y: s.value[i] })), borderColor: c.stamp, backgroundColor: hexA(c.stamp, .12), fill: fill ? 'origin' : false, borderWidth: 2.2, pointRadius: 0, tension: 0 },
         { label: 'Money put in, net', data: s.grid.map((t, i) => ({ x: t, y: s.inv[i] })), borderColor: c.c2, backgroundColor: c.c2, borderDash: [6, 5], borderWidth: 1.8, pointRadius: 0, stepped: true }
       ];
     chart = new window.Chart($('#pfChart'), {
@@ -264,14 +305,74 @@
       options: {
         parsing: false, normalized: true, animation: false, responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: view.mode !== 'gain', position: 'bottom', labels: { color: c['ink-2'], usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, padding: 16, font: { family: 'IBM Plex Sans', size: 12.5 } } },
-          tooltip: Object.assign(tooltip(c), { callbacks: { title: it => fmtDate(it[0].parsed.x), label: ctx => ` ${ctx.dataset.label}: ${cmp(ctx.parsed.y)}` } })
-        },
-        scales: {
-          x: Object.assign(timeAxis(c, s.grid[s.grid.length - 1] - s.grid[0]), { min: s.grid[0], max: s.grid[s.grid.length - 1] }),
-          y: { grid: { color: c.rule }, border: { display: false }, ticks: { color: c.muted, maxTicksLimit: 6, font: { family: 'IBM Plex Sans', size: 11.5 }, callback: v => MF.tick(v) } }
+        plugins: { legend, tooltip: tip },
+        scales: { x: Object.assign(timeAxis(c, s.grid[s.grid.length - 1] - s.grid[0]), { min: s.grid[0], max: s.grid[s.grid.length - 1] }), y: yAxis }
+      }
+    });
+  }
+
+  /* ---------- what you hold ---------- */
+  const assetClass = f => f ? groupLabel(f.g) || 'Other' : 'Not in the fund list';
+  function mixGroups() {
+    const map = new Map();
+    for (const r of results) {
+      if (r.error || !(r.value > 0.5)) continue;
+      const f = D && r.code ? D.byCode.get(r.code) : null;
+      const key = charts.by === 'amc' ? (r.h.amc || (f ? f.a : 'Fund house not known'))
+        : charts.by === 'cat' ? (f ? shortCategory(f.k) : 'Not in the fund list')
+        : charts.by === 'asset' ? assetClass(f)
+        : (r.h.name || (f ? f.n : `Scheme ${r.code}`));
+      map.set(key, (map.get(key) || 0) + r.value);
+    }
+    let rows = [...map].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+    const total = rows.reduce((s, r) => s + r.value, 0);
+    // Five named slices at most; the rest fold into Other, so colours stay tellable apart.
+    if (rows.length > 6) {
+      const tail = rows.slice(5);
+      rows = rows.slice(0, 5).concat([{ name: `Other (${tail.length})`, value: tail.reduce((s, r) => s + r.value, 0), other: true }]);
+    }
+    return { rows, total };
+  }
+
+  function renderMix() {
+    const { rows, total } = mixGroups();
+    const box = $('#pfMix');
+    box.hidden = !rows.length;
+    if (mixChart) { mixChart.destroy(); mixChart = null; }
+    if (!rows.length) return;
+    const c = colors(), type = charts.mix, isBar = type === 'bar';
+    const col = (r, i) => r.other ? MF.cssVar('--c-other') : c['c' + (i + 1)];
+    const share = v => total > 0 ? v / total : 0;
+    $('#pfMixLegend').innerHTML = rows.map((r, i) =>
+      `<li style="--c:${col(r, i)}"><i></i><span class="nm" title="${esc(r.name)}">${esc(r.name)}</span><span class="v">${cmp(r.value)}</span><span class="s">${pct(share(r.value), 1)}</span></li>`).join('') +
+      `<li class="tot"><i></i><span class="nm">Total</span><span class="v">${cmp(total)}</span><span class="s">100%</span></li>`;
+    $('.mix-body', box).classList.toggle('bars', isBar);
+    if (typeof window.Chart === 'undefined') { $('#pfMixBox').innerHTML = '<div class="chart-fallback">The chart library did not load. The list has every figure.</div>'; return; }
+    if (!$('#pfMixChart')) $('#pfMixBox').innerHTML = '<canvas id="pfMixChart" role="img" aria-label="What you hold, by share of today\'s value"></canvas>';
+    const tip = Object.assign(tooltip(c), { callbacks: { title: it => rows[it[0].dataIndex].name, label: ctx => ` ${cmp(rows[ctx.dataIndex].value)}, ${pct(share(rows[ctx.dataIndex].value), 1)} of the total` } });
+    if (isBar) {
+      $('#pfMixBox').style.height = (rows.length * 40 + 30) + 'px';
+      mixChart = new window.Chart($('#pfMixChart'), {
+        type: 'bar',
+        data: { labels: rows.map(r => r.name.length > 30 ? r.name.slice(0, 28) + '…' : r.name), datasets: [{ data: rows.map(r => r.value), backgroundColor: rows.map(r => r.other ? MF.cssVar('--c-other') : c.c1), borderRadius: 4, borderSkipped: 'start', maxBarThickness: 22 }] },
+        options: {
+          indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: false, layout: { padding: { right: 64 } },
+          plugins: { legend: { display: false }, tooltip: tip, barValues: { format: v => pct(share(v), 0), color: c['ink-2'] } },
+          scales: {
+            x: { grid: { color: c.rule }, border: { display: false }, ticks: { color: c.muted, maxTicksLimit: 5, font: { family: 'IBM Plex Sans', size: 11.5 }, callback: v => MF.tick(v) } },
+            y: { grid: { display: false }, border: { color: c['rule-2'] }, ticks: { color: c['ink-2'], autoSkip: false, font: { family: 'IBM Plex Sans', size: 12.5 } } }
+          }
         }
+      });
+      return;
+    }
+    $('#pfMixBox').style.height = '';
+    mixChart = new window.Chart($('#pfMixChart'), {
+      type: 'doughnut',
+      data: { labels: rows.map(r => r.name), datasets: [{ data: rows.map(r => r.value), backgroundColor: rows.map(col), borderColor: c.sheet, borderWidth: 2, hoverOffset: 6 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false, cutout: type === 'donut' ? '64%' : 0, layout: { padding: 8 },
+        plugins: { legend: { display: false }, tooltip: tip, donutCenter: { text: cmp(total), caption: 'worth today', color: c.ink, sub: c.muted, size: narrow() ? 21 : 24 } }
       }
     });
   }
@@ -415,11 +516,22 @@
       const b = e.target.closest('[data-remove]'); if (!b) return;
       P.holdings = P.holdings.filter(h => h.id !== b.dataset.remove); save(); refresh();
     });
+    typeSwitch($('#pfType'), { label: 'Chart type', value: charts.time, types: TIME_TYPES, onChange: v => { charts.time = v; setPref('pfTime', v); renderChart(); } });
+    typeSwitch($('#pfMixType'), { label: 'Chart type', value: charts.mix, types: MIX_TYPES, onChange: v => { charts.mix = v; setPref('pfMix', v); renderMix(); } });
+    $('#pfMixBy').value = charts.by;
+    picker($('#pfMixBy'), { title: 'Group by' });
+    $('#pfMixBy').addEventListener('change', e => { charts.by = e.target.value; setPref('pfMixBy', charts.by); renderMix(); });
     $('#pfScope').addEventListener('change', e => { view.scope = e.target.value; store.set(KEY + ':view', JSON.stringify(view)); renderChart(); });
     $$('input[name="pf-mode"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { view.mode = r.value; store.set(KEY + ':view', JSON.stringify(view)); renderChart(); } }));
-    document.addEventListener('mf:theme', () => { if (inited && results.length) renderChart(); });
+    document.addEventListener('mf:theme', () => { if (inited && results.length) { renderChart(); renderMix(); } });
     document.addEventListener('mf:add-sip', e => {
-      const go = () => { const f = D && D.byCode.get(e.detail.code); if (f) { choose(f); $('#pfAmt').focus(); } };
+      const go = () => {
+        const f = D && D.byCode.get(e.detail.code);
+        if (!f) return;
+        choose(f);
+        if (window.Shell && window.Shell.sheetMode()) { window.Shell.openDrawer('pfRail'); setTimeout(() => $('#pfAmt').focus({ preventScroll: true }), 80); }
+        else $('#pfAmt').focus();
+      };
       if (D) go(); else init().then(go);
     });
   }
