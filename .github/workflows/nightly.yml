@@ -22,13 +22,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Action versions run on Node 24. The runner image is pinned rather than ubuntu-latest,
+  # which moves to Ubuntu 26 from 19 Oct 2026; move it up on purpose, after a test run.
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -41,7 +43,7 @@ jobs:
         run: python -m pytest -q pipeline/tests
 
       - name: Restore NAV history from the last run
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .cache
           key: nav-history-${{ github.run_id }}
@@ -58,33 +60,33 @@ jobs:
       - name: Keep NAV history for the next run
         # saved even if the build failed, so a long first backfill isn't lost
         if: always() && hashFiles('.cache/index.json') != ''
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .cache
           key: nav-history-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   keepalive:
     # GitHub pauses scheduled workflows in a public repository after 60 days
     # without activity. Switching this workflow on again from its own nightly
     # run resets that clock, so the schedule never lapses. It needs no commits.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: write
     steps:

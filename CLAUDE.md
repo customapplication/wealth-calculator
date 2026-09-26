@@ -32,7 +32,7 @@ pipeline/            nightly data build (Python 3.12, requests + numpy)
   build.py           orchestrator; run(cfg, cache_dir, out_dir, net, today, archive) takes an injectable `net` and `archive` for tests
   archive.py         Drive archive client: daily NAVAll.txt.gz, monthly history as ~5 MB .tar.gz parts; never fails the build
   config.json        sections/plans/options filters, extra_schemes, risk-free rate, limits
-  tests/             pytest, 36 tests, fixtures in AMFI's real old (6-col) and new (8-col) formats
+  tests/             pytest, 41 tests, fixtures in AMFI's real old (6-col) and new (8-col) formats
 tools/cas_to_json.py CAS PDF -> portfolio JSON via casparser 1.4; strips name/PAN/email/phone/address
 sheets/Code.gs       Apps Script sync backend, pasted into the owner's Sheet unchanged (@OnlyCurrentDoc)
 sheets/Archive.gs    Apps Script Drive archive, a separate standalone project (needs Drive scope, so kept apart)
@@ -40,6 +40,8 @@ sheets/tests/        node:test against fake-google.js, an in-memory SpreadsheetA
 site/                static site: index.html, manifest.webmanifest, icons/, css/app.css, js/{common,planner,explore,portfolio,sync,app}.js
 .github/workflows/nightly.yml  02:00 IST: tests -> build (+ Drive archive) -> Pages deploy; .cache kept via actions/cache; keepalive job
 .github/workflows/tests.yml    pytest + node tests on pull requests
+                               Both use Node 24 action majors (checkout/setup-python/setup-node v7, cache v6, configure-pages v6,
+                               upload-pages-artifact v5, deploy-pages v5) on a pinned ubuntu-24.04 runner; bump deliberately.
 ```
 
 ## Data pipeline rules
@@ -106,7 +108,8 @@ Google Sheet sync was tested end to end in Chromium (Playwright). Two browser pr
   - **First, 26 Sep 2026** (run 36255044912). NAVAll.txt parsed: 14,396 schemes, 3,941 tracked, header as `navall_new.txt`. The history report failed on its new header (fixed; rule 4), and some NAVs were dated the next day (rule 4a).
   - **Second, the same evening** (run 36259996296). The history report parsed with no warning. 708 schemes had 27 Sep NAVs, and nav_date correctly stayed 25 Sep. The build took 34 s with the cache.
   - Both runs stopped at `configure-pages`, because Pages wasn't set to GitHub Actions yet. The owner first chose "Deploy from a branch", which published the README.
-- Still open: set Pages to GitHub Actions, then check that the deploy works. Read run logs through the GitHub tools: the Claude Code on the web environment blocks amfiindia.com and api.mfapi.in, so `build.py` can't run there. Once the Drive archive is on, real NAVAll files are in the owner's Drive; they're the source for replacing the fixtures' illustrative rows.
+  - **Third, 26 Sep 19:03 UTC** (run 36264684959, the first with the archive code and secrets). It built and deployed. The archive failed: Google answered with a web page instead of JSON, most likely a sign-in page (access not Anyone), the /dev or editor URL, or a deployment made before the code was saved. `archive.web_page()` now names the cause in the log. This run was 00:33 IST on 27 Sep, so the 27 Sep liquid-fund NAVs counted as today, and nav_date was 27 Sep (rule 4a).
+- Pages is on GitHub Actions and deploying (runs 3 and 4). Still open: the owner fixes the archive's Apps Script deployment; check the next run's `Archive:` log lines. Read run logs through the GitHub tools: the Claude Code on the web environment blocks amfiindia.com and api.mfapi.in, so `build.py` can't run there. Once the Drive archive is on, real NAVAll files are in the owner's Drive; they're the source for replacing the fixtures' illustrative rows.
 
 ## Proposed next steps (confirm with the owner)
 

@@ -16,8 +16,8 @@ from test_build import FUNDS, NAV_DATE, TODAY, FakeNet, cfg
 
 
 class Resp:
-    def __init__(self, status, payload):
-        self.status_code, self._payload = status, payload
+    def __init__(self, status, payload, text="", url="https://script.googleusercontent.com/macros/echo"):
+        self.status_code, self._payload, self.text, self.url = status, payload, text, url
 
     def json(self):
         if isinstance(self._payload, Exception):
@@ -78,9 +78,30 @@ def test_a_different_script_or_a_web_page_is_explained():
     s = FakeSession([Resp(200, {"ok": False, "error": "Bad secret"})])
     with pytest.raises(archive.ArchiveError, match="different Apps Script"):
         archive.Archive("u", "s" * 20, session=s).call("status")
-    s = FakeSession([Resp(200, ValueError("html"))] * 3)
+    s = FakeSession([Resp(200, ValueError("html"), text="<html><title>Oops</title></html>")] * 3)
     with pytest.raises(archive.ArchiveError, match="Anyone"):
         archive.Archive("u", "s" * 20, session=s).call("status")
+
+
+@pytest.mark.parametrize("text,url,expect,final", [
+    ("<html><head><title>Sign in - Google Accounts</title></head></html>", "https://accounts.google.com/v3/signin/identifier?continue=x",
+     "asked for a sign-in", True),
+    ("<html><title>Error</title><body>Script function not found: doPost</body></html>", "https://script.google.com/macros/s/x/exec",
+     "doesn't contain Archive.gs", True),
+    ("<html><title>Error</title><body>Authorization is required to perform that action.</body></html>", "https://script.google.com/macros/s/x/exec",
+     "isn't authorised yet", True),
+    ("<html><title>Apps Script</title></html>", "https://script.google.com/home/projects/abc/edit",
+     "editor's address", True),
+    ("<html><title>Server Error</title></html>", "https://script.google.com/macros/s/x/exec",
+     "private browser window", False),
+])
+def test_a_web_page_answer_names_the_cause(text, url, expect, final):
+    s = FakeSession([Resp(200, ValueError("html"), text=text, url=url)] * 3)
+    with pytest.raises(archive.ArchiveError, match=expect) as e:
+        archive.Archive("u", "s" * 20, session=s).put_daily(date(2026, 9, 26), b"x")
+    assert e.value.final is final
+    assert len(s.bodies) == (1 if final else 3), "a cause that won't change isn't retried"
+    assert "s" * 20 not in str(e.value), "the secret never appears in a message"
 
 
 def write_cache(root, n=60):
