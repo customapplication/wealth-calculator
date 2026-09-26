@@ -1,0 +1,10 @@
+Scheme Code;Scheme Name;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Net Asset Value;Repurchase Price;Sale Price;Date
+
+Open Ended Schemes ( Equity Scheme - Flexi Cap Fund )
+
+PPFAS Mutual Fund
+
+122639;Parag Parikh Flexi Cap Fund - Direct Plan - Growth;INF879O01027;;91.50;;;21-Sep-2026
+122639;Parag Parikh Flexi Cap Fund - Direct Plan - Growth;INF879O01027;;91.80;;;22-Sep-2026
+122640;Parag Parikh Flexi Cap Fund - Regular Plan - Growth;INF879O01035;;85.00;;;22-Sep-2026
+555555;Not Tracked Fund;INF000000555;;10.00;;;22-Sep-2026

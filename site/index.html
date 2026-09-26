@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Corpus planner</title>
+<meta name="description" content="Plan SIPs and SWPs, rank Indian mutual funds from AMFI NAVs, and track your own portfolio.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E">
+<script>try{var t=localStorage.getItem('corpus-planner:theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>Corpus planner</h1>
+      <p>Indian mutual funds, from AMFI's own NAVs</p>
+    </div>
+    <nav class="views" aria-label="Pages">
+      <a href="#plan" data-view="plan">Plan</a>
+      <a href="#explore" data-view="explore">Explore funds</a>
+      <a href="#portfolio" data-view="portfolio">My portfolio</a>
+    </nav>
+    <div class="top-actions">
+      <button type="button" class="btn-quiet" id="themeToggle">Dark theme</button>
+    </div>
+  </header>
+
+  <section class="view" id="view-plan" data-view="plan">
+    <div class="view-bar">
+      <p>SIP, step-up SIP and SWP, calculated month by month</p>
+      <button type="button" class="btn-quiet" id="resetInputs">Reset inputs</button>
+    </div>
+  <div class="layout">
+    <aside class="rail" aria-label="Plan inputs">
+      <section>
+        <h2>What you invest</h2>
+        <label class="field">
+          <span class="lbl">Monthly SIP today</span>
+          <span class="box"><span class="pre">₹</span><input data-key="monthlySip" type="number" min="0" step="500" inputmode="decimal"></span>
+          <span class="hint" data-hint="monthlySip"></span>
+        </label>
+        <label class="field">
+          <span class="lbl">Current portfolio value <small>optional</small></span>
+          <span class="box"><span class="pre">₹</span><input data-key="existingCorpus" type="number" min="0" step="10000" inputmode="decimal"></span>
+          <span class="hint" data-hint="existingCorpus"></span>
+        </label>
+        <div class="field">
+          <label class="lbl" for="in-sipYears">Keep investing for <output data-out="sipYears"></output></label>
+          <input id="in-sipYears" data-key="sipYears" type="range" min="1" max="45" step="1">
+        </div>
+        <div class="field">
+          <span class="lbl">Raise the SIP every year by</span>
+          <div class="row">
+            <div class="seg" role="radiogroup" aria-label="Step-up type">
+              <label><input type="radio" name="stepUpType" value="pct"><span>%</span></label>
+              <label><input type="radio" name="stepUpType" value="amt"><span>₹</span></label>
+            </div>
+            <span class="box"><span class="pre" id="stepPre"></span><input data-key="stepUpValue" type="number" min="0" step="1" inputmode="decimal" aria-label="Yearly step-up"><span class="post" id="stepPost"></span></span>
+          </div>
+          <span class="hint" data-hint="stepUp"></span>
+        </div>
+        <label class="field">
+          <span class="lbl">Stop raising once the SIP reaches <small>0 means no limit</small></span>
+          <span class="box"><span class="pre">₹</span><input data-key="stepUpCap" type="number" min="0" step="1000" inputmode="decimal"></span>
+        </label>
+      </section>
+
+      <section>
+        <h2>Returns you expect</h2>
+        <div class="field">
+          <span class="lbl">Rates to compare <small>up to 6</small></span>
+          <div class="chips" id="rateChips"></div>
+          <div class="add">
+            <span class="box"><input id="newRate" type="number" step="0.5" min="-10" max="40" placeholder="Add a rate, e.g. 11" inputmode="decimal" aria-label="New return rate"><span class="post">% a year</span></span>
+            <button type="button" class="btn-add" id="addRate">Add</button>
+          </div>
+          <span class="hint" id="rateMsg"></span>
+        </div>
+        <label class="field">
+          <span class="lbl">Inflation</span>
+          <span class="box"><input data-key="inflation" type="number" step="0.5" min="0" max="20" inputmode="decimal"><span class="post">% a year</span></span>
+          <span class="hint">Used for every figure shown in today's money</span>
+        </label>
+        <label class="field">
+          <span class="lbl">Your age today <small>optional</small></span>
+          <span class="box"><input data-key="currentAge" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="Adds ages to the timeline"><span class="post">years</span></span>
+        </label>
+      </section>
+
+      <section>
+        <div class="sec-head"><h2 id="swpHead">Withdrawals (SWP)</h2><span class="switch"><input type="checkbox" data-key="swpEnabled" aria-labelledby="swpHead"><span></span></span></div>
+        <div class="swp-fields" id="swpFields">
+          <div class="field">
+            <label class="lbl" for="in-swpGapYears">Start withdrawing <output data-out="swpGapYears"></output></label>
+            <input id="in-swpGapYears" data-key="swpGapYears" type="range" min="0" max="30" step="1">
+          </div>
+          <label class="field">
+            <span class="lbl">Monthly withdrawal in the first year</span>
+            <span class="box"><span class="pre">₹</span><input data-key="swpMonthly" type="number" min="0" step="5000" inputmode="decimal"></span>
+            <span class="hint" data-hint="swpMonthly"></span>
+          </label>
+          <label class="field">
+            <span class="lbl">Raise the withdrawal every year by</span>
+            <span class="box"><input data-key="swpIncrease" type="number" min="0" step="0.5" inputmode="decimal"><span class="post">% a year</span></span>
+          </label>
+          <div class="field">
+            <label class="lbl" for="in-swpYears">Withdraw for <output data-out="swpYears"></output></label>
+            <input id="in-swpYears" data-key="swpYears" type="range" min="1" max="50" step="1">
+          </div>
+          <div class="field">
+            <span class="lbl">Return while withdrawing</span>
+            <div class="seg block" role="radiogroup" aria-label="Return while withdrawing">
+              <label><input type="radio" name="swpReturnMode" value="same"><span>Same</span></label>
+              <label><input type="radio" name="swpReturnMode" value="minus"><span>Lower by</span></label>
+              <label><input type="radio" name="swpReturnMode" value="fixed"><span>Fixed</span></label>
+            </div>
+            <span class="box" id="swpRetBox" style="margin-top:8px"><input data-key="swpReturnValue" type="number" step="0.5" inputmode="decimal" aria-label="Return while withdrawing"><span class="post">%</span></span>
+            <span class="hint" data-hint="swpReturn"></span>
+          </div>
+        </div>
+      </section>
+
+      <details id="conventions">
+        <summary>Calculation conventions</summary>
+        <div class="field">
+          <span class="lbl">Turning a yearly return into a monthly one</span>
+          <div class="seg stack" role="radiogroup" aria-label="Monthly rate method">
+            <label><input type="radio" name="rateMode" value="effective"><span>Compound: (1 + r)^(1/12) − 1</span></label>
+            <label><input type="radio" name="rateMode" value="nominal"><span>Simple: r ÷ 12</span></label>
+          </div>
+          <p class="note">Compound means 12% a year really is 12% a year. Most online SIP calculators use r ÷ 12, which works out to 12.68% a year and shows a slightly bigger corpus.</p>
+        </div>
+        <div class="field">
+          <span class="lbl">SIP and SWP happen at the</span>
+          <div class="seg block" role="radiogroup" aria-label="Cash flow timing">
+            <label><input type="radio" name="timing" value="start"><span>Start of month</span></label>
+            <label><input type="radio" name="timing" value="end"><span>End of month</span></label>
+          </div>
+        </div>
+      </details>
+    </aside>
+
+    <main class="sheet" id="main">
+      <div class="block">
+        <div id="banner"></div>
+        <p class="statement" id="statement"></p>
+        <p class="statement2" id="statement2"></p>
+        <div class="chart-bar">
+          <div class="pills" id="pills" role="group" aria-label="Choose a return rate to explore"></div>
+          <div class="row">
+            <div class="seg" role="radiogroup" aria-label="Chart view">
+              <label><input type="radio" name="chartMode" value="all"><span>All rates</span></label>
+              <label><input type="radio" name="chartMode" value="one"><span>This rate</span></label>
+            </div>
+            <div class="seg" role="radiogroup" aria-label="Value shown">
+              <label><input type="radio" name="valueMode" value="nominal"><span>Future ₹</span></label>
+              <label><input type="radio" name="valueMode" value="real"><span>Today's ₹</span></label>
+            </div>
+          </div>
+        </div>
+        <div class="chart-box" id="chartBox"><canvas id="chart" role="img" aria-label="Chart of corpus growth by year"></canvas></div>
+      </div>
+
+      <div class="block flush" id="figures"></div>
+      <div class="block"><div class="notes" id="notes"></div></div>
+
+      <div class="block">
+        <h3>Every rate side by side<span class="sub">Select a row to explore that rate</span></h3>
+        <div class="scroll"><table class="pick" id="compare"></table></div>
+      </div>
+
+      <div class="block">
+        <div class="tabs" role="tablist" aria-label="Details">
+          <button type="button" class="tab" role="tab" data-tab="ledger">Year-by-year ledger</button>
+          <button type="button" class="tab" role="tab" data-tab="logic">How it's calculated</button>
+          <button type="button" class="tab" role="tab" data-tab="engine">Edit the engine</button>
+        </div>
+
+        <div class="tabpanel" data-panel="ledger" role="tabpanel">
+          <div class="panel-head"><span id="ledgerCaption"></span><button type="button" class="btn-quiet" id="copyCsv">Copy as CSV</button></div>
+          <div class="scroll tall"><table class="pick" id="ledger"></table></div>
+        </div>
+
+        <div class="tabpanel" data-panel="logic" role="tabpanel" hidden><div id="logic"></div></div>
+
+        <div class="tabpanel" data-panel="engine" role="tabpanel" hidden>
+          <p class="lead">This is the exact function that produced every number on this page. Change it, press Apply changes (or Ctrl/⌘ + Enter), and the headline, chart, tables and ledger all re-run through your version. Your edits are saved in this browser only. Press Esc, then Tab, to move out of the editor.</p>
+          <div class="editor"><pre class="gutter" id="gutter" aria-hidden="true"></pre><textarea id="code" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off" aria-label="Engine source code"></textarea></div>
+          <div class="ed-actions">
+            <button type="button" class="btn-main" id="applyCode">Apply changes</button>
+            <button type="button" class="btn-quiet" id="restoreCode">Restore original</button>
+            <span class="status" id="codeStatus" role="status"></span>
+          </div>
+          <div class="recipes">
+            <h4>Ideas to try</h4>
+            <p>Charge a 1% yearly fund expense. In step 1, replace both uses of <code>annualPct</code> with <code>(annualPct - 1)</code>.</p>
+            <pre class="formula">? annualPct / 100 / 12   →   ? (annualPct - 1) / 100 / 12</pre>
+            <p>Add a one-time lump sum of ₹5 lakh in month 36. Put this on the line after <code>let contribution = …</code>:</p>
+            <pre class="formula">if (m === 36) contribution += 500000;</pre>
+            <p>Skip every SIP in year 8, say for a sabbatical:</p>
+            <pre class="formula">if (phase === 'sip' &amp;&amp; Math.ceil(m / 12) === 8) contribution = 0;</pre>
+            <p>Withdraw 4% of the corpus each year instead of a fixed amount. Add this at the end of step 4:</p>
+            <pre class="formula">if (phase === 'swp' &amp;&amp; (swpMonth - 1) % 12 === 0) swp = corpus * 0.04 / 12;</pre>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <p class="foot">Projections assume the same return every month. Real markets swing, and a crash in the first few years of withdrawals hurts far more than one later on, so read each SWP result as the outcome for a steady version of that return. Taxes, exit loads and fund expenses are not included unless you add them in the engine. This is a planning tool, not investment advice.</p>
+  </section>
+
+  <section class="view" id="view-explore" data-view="explore" hidden>
+    <div class="sheet">
+      <div class="block">
+        <div id="exFresh" class="fresh"></div>
+        <div class="ex-filters" id="exFilters">
+          <label class="field ex-cat"><span class="lbl">Category</span><span class="box sel"><select id="exCat"></select></span></label>
+          <div class="field"><span class="lbl">Plan</span>
+            <div class="seg" role="radiogroup" aria-label="Plan">
+              <label><input type="radio" name="ex-plan" value="Direct"><span>Direct</span></label>
+              <label><input type="radio" name="ex-plan" value="Regular"><span>Regular</span></label>
+            </div>
+          </div>
+          <label class="field"><span class="lbl">Rank by</span><span class="box sel"><select id="exMetric"></select></span></label>
+          <label class="field"><span class="lbl">Show</span><span class="box sel"><select id="exTop"><option value="5">Top 5</option><option value="10">Top 10</option><option value="20">Top 20</option><option value="0">All</option></select></span></label>
+          <label class="field"><span class="lbl">Running for at least</span><span class="box sel"><select id="exAge"><option value="0">Any length</option><option value="3">3 years</option><option value="5">5 years</option><option value="10">10 years</option></select></span></label>
+          <label class="field ex-q"><span class="lbl">Find a fund</span><span class="box"><input id="exQ" type="search" placeholder="Name or fund house" autocomplete="off"></span></label>
+        </div>
+      </div>
+      <div class="block flush">
+        <div class="scroll"><table class="pick funds" id="exTable"></table></div>
+        <p class="ex-more" id="exMore" role="status"></p>
+      </div>
+      <div class="block" id="exDetail" hidden></div>
+      <div class="block">
+        <details class="method">
+          <summary>How these numbers are worked out</summary>
+          <p>Every figure comes from daily NAVs published by AMFI. Nothing is estimated or generated, and there is no AI involved.</p>
+          <ul>
+            <li><b>1-year return</b> is the change in NAV over the last year. <b>3, 5 and 10-year returns</b> are CAGR from the NAV on the same date N years ago (or the last working day before it) to the latest NAV.</li>
+            <li><b>Since launch</b> is CAGR from the first NAV. It's left blank for funds launched before April 2006, when AMFI's NAV history starts.</li>
+            <li><b>3Y rolling</b> is the median of every 3-year CAGR ending on each day the fund has 3 years of history. It depends much less on today's date than a single 3-year return. <b>Worst 3Y</b> is the lowest of those.</li>
+            <li><b>Beat peers</b> is the share of weekly 3-year periods in which the fund's return beat the median fund in the same category and plan.</li>
+            <li><b>Max fall 5Y</b> is the biggest drop from a peak to a later low within the last 5 years. <b>Volatility 3Y</b> is the annualised standard deviation of daily returns. <b>Sharpe 3Y</b> is the 3-year return minus a 6.5% risk-free rate, divided by volatility.</li>
+            <li>If a NAV needed for a figure is missing (a hole of more than 10 days in the data), the figure is left blank rather than guessed.</li>
+            <li>Rankings list only the Growth option. IDCW returns leave out the payouts, so they aren't comparable.</li>
+          </ul>
+          <p>A ranking sorts past results. It doesn't predict which fund will do best next, and it doesn't include expense ratios, fund size, portfolio overlap or who manages the fund, all of which matter when choosing.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-portfolio" data-view="portfolio" hidden>
+    <div class="layout">
+      <aside class="rail" aria-label="Add investments">
+        <section>
+          <h2>Add an investment</h2>
+          <div class="field">
+            <label class="lbl" for="pfFund">Fund</label>
+            <div class="combo">
+              <span class="box"><input id="pfFund" type="search" autocomplete="off" placeholder="Name, fund house or scheme code" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pfFundList"></span>
+              <ul id="pfFundList" class="combo-list" role="listbox" hidden></ul>
+            </div>
+            <span class="hint" id="pfFundHint"></span>
+          </div>
+          <div class="field">
+            <div class="seg block" role="radiogroup" aria-label="Kind of investment">
+              <label><input type="radio" name="pf-kind" value="sip" checked><span>Monthly SIP</span></label>
+              <label><input type="radio" name="pf-kind" value="lump"><span>One-time</span></label>
+            </div>
+          </div>
+          <div id="pfSipFields">
+            <label class="field"><span class="lbl">SIP amount</span><span class="box"><span class="pre">₹</span><input id="pfAmt" type="number" min="100" step="500" inputmode="decimal" value="5000"></span></label>
+            <div class="row2">
+              <label class="field"><span class="lbl">Debit day</span><span class="box"><input id="pfDay" type="number" min="1" max="28" step="1" value="5" inputmode="numeric"></span></label>
+              <label class="field"><span class="lbl">First SIP</span><span class="box"><input id="pfStart" type="month"></span></label>
+            </div>
+            <label class="field"><span class="lbl">Stopped in <small>leave empty if still running</small></span><span class="box"><input id="pfEnd" type="month"></span></label>
+            <label class="field"><span class="lbl">Raised every year by <small>optional</small></span><span class="box"><input id="pfStep" type="number" min="0" step="1" value="0" inputmode="decimal"><span class="post">%</span></span></label>
+          </div>
+          <div id="pfLumpFields" hidden>
+            <label class="field"><span class="lbl">Amount</span><span class="box"><span class="pre">₹</span><input id="pfLumpAmt" type="number" min="100" step="1000" inputmode="decimal"></span></label>
+            <label class="field"><span class="lbl">Date invested</span><span class="box"><input id="pfLumpDate" type="date"></span></label>
+          </div>
+          <button type="button" class="btn-main wide" id="pfAdd">Add to portfolio</button>
+          <p class="hint" id="pfAddMsg" role="status"></p>
+        </section>
+        <section>
+          <h2>Import your statement</h2>
+          <p class="note">Your Consolidated Account Statement (CAS) from CAMS and KFintech lists every purchase you've made, with the exact units and NAV, across all fund houses.</p>
+          <ol class="steps-mini">
+            <li>Request a <b>Detailed</b> CAS from camsonline.com (or MF Central), from before your first investment to today, with a password you choose.</li>
+            <li>On your computer, run <code>python tools/cas_to_json.py cas.pdf</code>. It drops your name, PAN and contact details.</li>
+            <li>Choose the file it makes.</li>
+          </ol>
+          <div class="btn-row"><label class="btn-quiet">Choose portfolio file<input id="pfImport" type="file" accept=".json,application/json" hidden></label></div>
+          <p class="hint" id="pfImportMsg" role="status"></p>
+        </section>
+        <section>
+          <h2>Backup</h2>
+          <p class="note">Your portfolio is saved only in this browser. Nothing is uploaded, and the site's public data never includes it.</p>
+          <div class="btn-row">
+            <button type="button" class="btn-quiet" id="pfExport">Download backup</button>
+            <label class="btn-quiet">Restore a backup<input id="pfRestore" type="file" accept=".json,application/json" hidden></label>
+          </div>
+          <p><button type="button" class="linkish danger" id="pfClear">Remove everything</button></p>
+        </section>
+      </aside>
+      <main class="sheet">
+        <div class="block">
+          <p class="statement" id="pfStatement" style="--sc:var(--ink)"></p>
+          <p class="statement2" id="pfStatement2"></p>
+          <div id="pfChartWrap" hidden>
+            <div class="chart-bar">
+              <span class="box sel"><select id="pfScope" aria-label="Show on the chart"></select></span>
+              <div class="seg" role="radiogroup" aria-label="Chart view">
+                <label><input type="radio" name="pf-mode" value="value" checked><span>Worth and money in</span></label>
+                <label><input type="radio" name="pf-mode" value="gain"><span>Gain</span></label>
+              </div>
+            </div>
+            <div class="chart-box" id="pfChartBox"><canvas id="pfChart" role="img" aria-label="Portfolio value over time"></canvas></div>
+          </div>
+        </div>
+        <div class="block flush" id="pfFigures"></div>
+        <div class="block" id="pfHoldings" hidden>
+          <h3>Investments</h3>
+          <div class="scroll"><table id="pfTable"></table></div>
+          <div id="pfNotes"></div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+</div>
+<script src="js/common.js"></script>
+<script src="js/planner.js"></script>
+<script src="js/explore.js"></script>
+<script src="js/portfolio.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

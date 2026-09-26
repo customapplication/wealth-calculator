@@ -1,0 +1,25 @@
+Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Plan;Option;Net Asset Value;Date
+
+Open Ended Schemes(Children’s Fund - Childrens' Fund)
+
+Axis Mutual Fund
+
+135762;INF846K01WO1;-;Axis Children&#x27;s Fund;Direct Plan;Growth Option;30.0236;23-Sep-2026
+135765;INF846K01WP8;-;Axis Children's Fund;Direct Plan;IDCW Option;27.6571;23-Sep-2026
+135759;INF846K01WJ1;-;Axis Children's Fund;Regular Plan;Growth Option;26.1412;23-Sep-2026
+
+Open Ended Schemes(Equity Scheme - Flexi Cap Fund)
+
+PPFAS Mutual Fund
+
+122639;INF879O01027;-;Parag Parikh Flexi Cap Fund;Direct Plan;Growth Option;92.1234;23-Sep-2026
+122640;INF879O01035;-;Parag Parikh Flexi Cap Fund;Regular Plan;Growth Option;85.5000;23-Sep-2026
+999001;INF000000001;-;Old Wound Up Fund;Direct Plan;Growth Option;11.2000;02-Mar-2019
+999002;INF000000002;-;No NAV Fund;Direct Plan;Growth Option;N.A.;23-Sep-2026
+999003;INF000000003;-;Some Fund Segregated Portfolio 1;Direct Plan;Growth Option;0.1000;23-Sep-2026
+
+Close Ended Schemes(Income)
+
+Some Mutual Fund
+
+777001;INF000000777;-;FMP Series 9;Direct Plan;Growth Option;12.3456;23-Sep-2026
