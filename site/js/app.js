@@ -1,95 +1,117 @@
-/* Page switching (Plan, Explore funds, My portfolio), the light/dark theme, and
-   on phones the input panels that slide up from the bottom. */
+/* Page switching (Home, Portfolio, Explore funds, Compare, Plan), the panels
+   that hold forms (a drawer on wide screens, a sheet on phones), and the theme. */
 (() => {
   'use strict';
   const { $, $$, store, currentTheme, emit } = MF;
-  const VIEWS = ['plan', 'explore', 'portfolio'];
+  const VIEWS = ['home', 'portfolio', 'explore', 'compare', 'plan'];
+  const NAV_OF = { compare: 'explore' };
   const THEME_KEY = 'corpus-planner:theme';
-  const TITLES = { plan: 'Plan', explore: 'Explore funds', portfolio: 'My portfolio' };
+  const TITLES = { home: 'Home', portfolio: 'Portfolio', explore: 'Explore funds', compare: 'Compare funds', plan: 'Plan' };
 
-  /* ---------- input panels: a sidebar on wide screens, a sheet on phones ---------- */
-  const sheetMode = window.matchMedia('(max-width: 1000px)');
-  let openRail = null, opener = null;
+  /* ---------- panels ---------- */
+  let openP = null, opener = null, openerSel = null;
+  // If the opener is redrawn while the panel is open (the plan sentence is), focus goes to its replacement.
+  const selectorOf = el => el && el.id ? '#' + CSS.escape(el.id)
+    : el && el.dataset && el.dataset.focus ? `[data-focus="${CSS.escape(el.dataset.focus)}"]` : null;
   const focusables = el => $$('button:not([disabled]), [href], input:not([type=hidden]):not([disabled]), select:not([disabled]):not(.pick-native), textarea, summary, [tabindex]:not([tabindex="-1"])', el)
     .filter(x => x.offsetParent !== null || x === document.activeElement);
 
-  function openDrawer(id, focusSel) {
-    const rail = document.getElementById(id);
-    if (!rail || !sheetMode.matches) {
-      if (rail && focusSel) { const t = $(focusSel, rail); if (t) t.scrollIntoView({ block: 'start' }); }
-      return;
-    }
-    if (openRail) closeDrawer(false);
-    openRail = rail;
-    opener = $(`[data-drawer-open="${id}"]`);
-    rail.classList.add('open');
-    rail.setAttribute('role', 'dialog');
-    rail.setAttribute('aria-modal', 'true');
-    document.documentElement.classList.add('drawer-open');
-    if (opener) opener.setAttribute('aria-expanded', 'true');
-    const target = focusSel ? $(focusSel, rail) : null;
-    if (target) target.scrollIntoView({ block: 'start' }); else rail.scrollTop = 0;
-    const done = $('[data-drawer-close]', rail);
-    setTimeout(() => (done || rail).focus({ preventScroll: true }), 30);
+  function openPanel(id, focusSel) {
+    const p = document.getElementById(id);
+    if (!p) return;
+    if (openP && openP !== p) closePanel(false);
+    if (!openP) { opener = document.activeElement; openerSel = selectorOf(opener); }
+    openP = p;
+    p.hidden = false;
+    document.documentElement.classList.add('panel-open');
+    document.documentElement.classList.toggle('panel-light', id === 'planRail');
+    $$(`[data-open-panel="${id}"]`).forEach(b => b.setAttribute('aria-expanded', 'true'));
+    const target = focusSel ? $(focusSel, p) : null;
+    setTimeout(() => {
+      if (target) {
+        target.scrollIntoView({ block: 'center' });
+        target.focus({ preventScroll: true });
+        if (target.select && target.type === 'number') target.select();
+      } else {
+        const body = $('.panel-body', p); if (body) body.scrollTop = 0;
+        ($('[data-panel-close]', p) || p).focus({ preventScroll: true });
+      }
+    }, 30);
+    emit('mf:panel', { id, open: true });
   }
-  function closeDrawer(returnFocus = true) {
-    if (!openRail) return;
-    openRail.classList.remove('open');
-    openRail.removeAttribute('role');
-    openRail.removeAttribute('aria-modal');
-    document.documentElement.classList.remove('drawer-open');
-    if (opener) { opener.setAttribute('aria-expanded', 'false'); if (returnFocus) opener.focus({ preventScroll: true }); }
-    openRail = opener = null;
+  function closePanel(returnFocus = true) {
+    if (!openP) return;
+    const id = openP.id;
+    openP.hidden = true;
+    openP = null;
+    document.documentElement.classList.remove('panel-open', 'panel-light');
+    $$(`[data-open-panel="${id}"]`).forEach(b => b.setAttribute('aria-expanded', 'false'));
+    if (returnFocus && opener && !document.contains(opener) && openerSel) opener = $(openerSel);
+    if (returnFocus && opener && document.contains(opener) && opener.focus) opener.focus({ preventScroll: true });
+    opener = null; openerSel = null;
+    emit('mf:panel', { id, open: false });
   }
-  $$('[data-drawer-open]').forEach(b => b.addEventListener('click', () => openDrawer(b.dataset.drawerOpen)));
   document.addEventListener('click', e => {
-    if (e.target.closest('[data-drawer-close]') || (openRail && e.target.classList.contains('scrim'))) closeDrawer();
+    const o = e.target.closest('[data-open-panel]');
+    if (o) { e.preventDefault(); openPanel(o.dataset.openPanel, o.dataset.focusSel); return; }
+    if (e.target.closest('[data-panel-close]') || (openP && e.target.classList.contains('scrim'))) closePanel();
   });
   document.addEventListener('keydown', e => {
-    if (!openRail) return;
-    if (e.key === 'Escape' && !document.documentElement.classList.contains('pick-sheet-open')) { e.preventDefault(); closeDrawer(); return; }
+    if (!openP) return;
+    if (e.key === 'Escape' && !document.documentElement.classList.contains('pick-sheet-open') && !e.defaultPrevented) {
+      if (e.target.closest && e.target.closest('.combo') && e.target.getAttribute('aria-expanded') === 'true') return;
+      e.preventDefault(); closePanel(); return;
+    }
     if (e.key !== 'Tab') return;
-    const f = focusables(openRail);
+    const f = focusables(openP);
     if (!f.length) return;
     const first = f[0], last = f[f.length - 1];
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
-  const onMode = () => { if (!sheetMode.matches) closeDrawer(false); };
-  if (sheetMode.addEventListener) sheetMode.addEventListener('change', onMode); else if (sheetMode.addListener) sheetMode.addListener(onMode);
+  $$('.panel').forEach(p => p.setAttribute('tabindex', '-1'));
 
-  window.Shell = { openDrawer, closeDrawer, sheetMode: () => sheetMode.matches };
+  // Kept for code that still asks for the old input drawers.
+  window.Shell = {
+    openPanel, closePanel,
+    openDrawer: (id, focusSel) => openPanel(id === 'pfRail' ? (focusSel === '#syncBox' ? 'panelSheet' : 'panelAdd') : id, focusSel === '#syncBox' ? null : focusSel),
+    closeDrawer: closePanel,
+    isOpen: id => !!(openP && (!id || openP.id === id)),
+    sheetMode: () => !window.matchMedia('(min-width: 760px)').matches
+  };
 
   /* ---------- pages ---------- */
-  function show(view) {
-    if (!VIEWS.includes(view)) view = 'plan';
+  let current = null;
+  function show(view, fromHash) {
+    if (!VIEWS.includes(view)) view = 'home';
     // A panel opened for the page being shown (e.g. "Add a SIP in this fund") stays open.
-    if (openRail && !openRail.closest(`[data-view="${view}"]`)) closeDrawer(false);
+    if (openP && !(openP.closest(`[data-view="${view}"]`) || !openP.closest('.view'))) closePanel(false);
     $$('.view').forEach(v => { v.hidden = v.dataset.view !== view; });
-    $$('.views a').forEach(a => {
-      if (a.dataset.view === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    const navView = NAV_OF[view] || view;
+    $$('.nav a, .tabbar a').forEach(a => {
+      if (a.dataset.view === navView) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
     document.title = `${TITLES[view]} · SIPs`;
     document.documentElement.dataset.view = view;
-    store.set('corpus-planner:view', view);
+    if (view !== 'compare') store.set('corpus-planner:view', view);
+    if (current && current !== view && fromHash) window.scrollTo(0, 0);
+    current = view;
     emit('mf:view', { view });
   }
 
   /* ---------- theme ---------- */
   function setThemeLabel() {
     const next = currentTheme() === 'dark' ? 'light' : 'dark';
-    const b = $('#themeToggle');
-    b.setAttribute('aria-label', `Switch to the ${next} theme`);
-    b.title = `Switch to the ${next} theme`;
+    $$('.theme-toggle').forEach(b => { b.setAttribute('aria-label', `Switch to the ${next} theme`); b.title = `Switch to the ${next} theme`; });
     document.documentElement.dataset.shown = currentTheme();
   }
-  $('#themeToggle').addEventListener('click', () => {
+  $$('.theme-toggle').forEach(b => b.addEventListener('click', () => {
     const next = currentTheme() === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     store.set(THEME_KEY, next);
     setThemeLabel();
     emit('mf:theme', { theme: next });
-  });
+  }));
   if (window.matchMedia) {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const onChange = () => { if (!document.documentElement.getAttribute('data-theme')) { setThemeLabel(); emit('mf:theme', {}); } };
@@ -97,6 +119,7 @@
   }
   setThemeLabel();
 
-  window.addEventListener('hashchange', () => show(location.hash.slice(1)));
-  show(location.hash.slice(1) || store.get('corpus-planner:view') || 'plan');
+  window.addEventListener('hashchange', () => show(location.hash.slice(1), true));
+  const saved = store.get('corpus-planner:view');
+  show(location.hash.slice(1) || (VIEWS.includes(saved) ? saved : 'home'));
 })();

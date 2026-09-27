@@ -43,6 +43,7 @@ var APP = 'corpus-planner-archive';
 var VERSION = 1;
 var MIN_SECRET = 16;
 var ROOT_NAME = 'SIPs archive';
+var OLD_ROOT_NAMES = ['Corpus planner archive'];   // the app's earlier name; that folder is kept and renamed
 var DAILY_DIR = 'NAVAll';
 var HISTORY_DIR = 'NAV history';
 var SNAP_PREFIX = 'NAV history ';
@@ -102,11 +103,21 @@ function doPost(e) {
 function root_() {
   var p = props_(), id = p.getProperty('rootId');
   if (id) {
-    try { var f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; } catch (e) { /* gone: find or make it */ }
+    try { var f = DriveApp.getFolderById(id); if (!f.isTrashed()) return renamed_(f); } catch (e) { /* gone: find or make it */ }
   }
-  var it = DriveApp.getRootFolder().getFoldersByName(ROOT_NAME);
-  var folder = it.hasNext() ? it.next() : DriveApp.getRootFolder().createFolder(ROOT_NAME);
+  var names = [ROOT_NAME].concat(OLD_ROOT_NAMES), folder = null;
+  for (var i = 0; i < names.length && !folder; i++) {
+    var it = DriveApp.getRootFolder().getFoldersByName(names[i]);
+    while (it.hasNext()) { var x = it.next(); if (!x.isTrashed()) { folder = x; break; } }
+  }
+  folder = folder ? renamed_(folder) : DriveApp.getRootFolder().createFolder(ROOT_NAME);
   p.setProperty('rootId', folder.getId());
+  return folder;
+}
+
+/** A folder made under the app's earlier name takes the current one; any other name is the owner's choice. */
+function renamed_(folder) {
+  if (OLD_ROOT_NAMES.indexOf(folder.getName()) >= 0) folder.setName(ROOT_NAME);
   return folder;
 }
 

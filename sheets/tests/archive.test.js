@@ -45,6 +45,28 @@ test("stores the day's NAVAll.txt, gzipped, by year and month", () => {
   assert.equal(JSON.parse(f.getDescription()).md5, md5(NAVALL));
 });
 
+test('a folder made under the old name is kept and renamed, whether it was remembered or found', () => {
+  // remembered: an earlier version of the script made it and saved its id
+  let g = setup();
+  g.call('putDaily', daily('2026-09-25'));
+  g.drive.getRootFolder().getFoldersByName('SIPs archive').next().setName('Corpus planner archive');
+  let r = g.call('putDaily', daily('2026-09-26', NAVALL + '\n'));
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(g.drive.paths(), ['SIPs archive/NAVAll/2026/09/NAVAll-2026-09-25.txt.gz', 'SIPs archive/NAVAll/2026/09/NAVAll-2026-09-26.txt.gz']);
+  // found: a new script project, but the old folder is in My Drive
+  g = setup();
+  g.drive.getRootFolder().createFolder('Corpus planner archive').createFolder('NAVAll');
+  r = g.call('putDaily', daily('2026-09-26'));
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(g.drive.getRootFolder().folders.map(f => f.name), ['SIPs archive'], 'one folder, not two');
+  // a name the owner chose stays
+  g = setup();
+  g.call('putDaily', daily('2026-09-25'));
+  g.drive.getRootFolder().getFoldersByName('SIPs archive').next().setName('Mutual fund data');
+  g.call('putDaily', daily('2026-09-26', NAVALL + '\n'));
+  assert.deepEqual(g.drive.getRootFolder().folders.map(f => f.name), ['Mutual fund data']);
+});
+
 test('the same file twice in a day is stored once; a changed one is kept as -2', () => {
   const g = setup();
   g.call('putDaily', daily('2026-09-26'));

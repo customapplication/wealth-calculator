@@ -1,11 +1,13 @@
-/* Explore funds: rank each category's funds by a measure you choose, from AMFI NAVs. */
+/* Explore funds: rank the funds in any mix of categories, plus funds you pick,
+   by a measure you choose, from AMFI NAVs. Tick funds to compare them. */
 (() => {
   'use strict';
-  const { $, $$, esc, full2, pct, fmtDate, fmtMonth, store, hexA, colors, loadFunds, loadHistory,
+  const { $, $$, esc, full2, pct, fmtDate, store, hexA, colors, loadFunds, loadHistory,
     idxOnOrBefore, timeAxis, tooltip, reducedMotion, emit, shortCategory, groupLabel, DAY,
-    icon, narrow, pref, setPref, typeSwitch, picker, refreshPickers } = MF;
+    icon, narrow, pref, setPref, typeSwitch, picker, refreshPickers, searchFunds, combo, loadLinks, amcSite, shortAmc, launchYear } = MF;
 
   const KEY = 'mf-explore:v1';
+  const MAX_CMP = 5;
   const MEASURES = [
     { key: 'rr3med', label: 'Typical 3-year return (rolling median)', col: '3Y rolling', desc: true, about: 'The middle of every 3-year return the fund has had. Steadier than any single date.' },
     { key: 'cons', label: 'How often it beat the category median', col: 'Beat peers', desc: true, share: true, about: 'Share of 3-year periods in which it did better than the typical fund in its category.' },
@@ -19,13 +21,17 @@
     { key: 'vol3', label: 'Lowest volatility, 3 years', col: 'Volatility 3Y', desc: false, about: 'How much daily NAVs swing. Lower is smoother.' },
     { key: 'sh3', label: 'Sharpe ratio, 3 years', col: 'Sharpe 3Y', desc: true, num: true, about: 'Return above a 6.5% safe rate for each unit of swing.' }
   ];
-  const MINI = ['r1', 'r3', 'r5', 'r10', 'rr3med'];
   const COLS = ['r1', 'r3', 'r5', 'r10', 'si', 'rr3med', 'rr3min', 'cons', 'mdd5', 'vol3', 'sh3'];
   const RANGES = [['1', '1Y'], ['3', '3Y'], ['5', '5Y'], ['10', '10Y'], ['all', 'All']];
 
-  let D = null, inited = false, loading = false, chart = null, detailToken = 0, lastShown = [];
-  const state = Object.assign({ cat: '', plan: 'Direct', metric: 'rr3med', top: 10, age: 0, q: '', sel: null, range: '5' }, store.json(KEY, {}));
-  let rankChart = null;
+  let D = null, inited = false, loading = false, chart = null, detailToken = 0, lastShown = [], rankChart = null, lastHist = null;
+  const saved = store.json(KEY, {});
+  const state = Object.assign({ cats: [], funds: [], plan: 'Direct', metric: 'rr3med', top: 10, age: 0, amc: '', sel: null, range: '5', cmp: [] }, saved);
+  if (!Array.isArray(state.cats)) state.cats = [];
+  if (saved.cat && !state.cats.length) state.cats = [saved.cat];       // the one-category version
+  delete state.cat; delete state.q;
+  if (!['Direct', 'Regular', 'Both'].includes(state.plan)) state.plan = 'Direct';
+  ['funds', 'cmp'].forEach(k => { if (!Array.isArray(state[k])) state[k] = []; state[k] = state[k].map(Number).filter(Number.isFinite); });
   const view = { list: pref('exList', 'table', ['table', 'chart']), fund: pref('exFund', 'area', ['line', 'area', 'years']) };
   const save = () => store.set(KEY, JSON.stringify(state));
   const measure = () => MEASURES.find(m => m.key === state.metric) || MEASURES[0];
@@ -36,6 +42,22 @@
     if (key === 'sh3') return x.toFixed(2);
     return pct(x, 1);
   }
+  const negCls = (key, x) => x != null && x < 0 && key !== 'vol3' ? ' neg' : '';
+
+  /* ---------- funds picked for comparing (shared with compare.js) ---------- */
+  window.Picks = {
+    get: () => state.cmp.slice(),
+    has: code => state.cmp.includes(+code),
+    set(list) { state.cmp = [...new Set(list.map(Number))].slice(0, MAX_CMP); save(); emit('mf:picks', { list: state.cmp.slice() }); },
+    toggle(code) {
+      code = +code;
+      if (state.cmp.includes(code)) this.set(state.cmp.filter(c => c !== code));
+      else if (state.cmp.length >= MAX_CMP) return false;
+      else this.set(state.cmp.concat(code));
+      return true;
+    },
+    max: MAX_CMP
+  };
 
   /* ---------- loading ---------- */
   async function init() {
@@ -49,6 +71,7 @@
       renderMissing(e);
       return;
     }
+    await loadLinks();
     loading = false; inited = true;
     fillControls();
     renderFresh();
@@ -59,10 +82,12 @@
     $('#exFresh').innerHTML = '';
     $('#exFilters').hidden = true;
     $('#exTable').innerHTML = '';
+    $('#exCards').innerHTML = '';
     $('#exMore').innerHTML = `<span class="empty-msg"><b>No fund data yet.</b> This page reads the files the nightly job builds from AMFI. If you've just set up the repository, run the “Nightly mutual fund data” workflow once from the Actions tab. Running locally? Build the data with <code>python pipeline/build.py</code>, then serve the site folder. (${esc(e.message)})</span>`;
   }
 
   /* ---------- controls ---------- */
+  let catList = [];
   function categories() {
     const map = new Map();
     for (const f of D.funds) {
@@ -76,65 +101,135 @@
 
   function fillControls() {
     $('#exFilters').hidden = false;
-    const cats = categories();
-    if (!cats.some(c => c.k === state.cat)) {
-      const pref = cats.find(c => /flexi cap/i.test(c.k)) || cats.find(c => /^equity/i.test(c.g)) || cats[0];
-      state.cat = pref ? pref.k : '';
+    catList = categories();
+    state.cats = state.cats.filter(k => catList.some(c => c.k === k));
+    state.funds = state.funds.filter(c => D.byCode.has(c));
+    state.cmp = state.cmp.filter(c => D.byCode.has(c));
+    if (!state.cats.length && !state.funds.length) {
+      const pick = catList.find(c => /flexi cap/i.test(c.k)) || catList.find(c => /^equity/i.test(c.g)) || catList[0];
+      if (pick) state.cats = [pick.k];
     }
-    const groups = new Map();
-    cats.forEach(c => { if (!groups.has(c.g)) groups.set(c.g, []); groups.get(c.g).push(c); });
-    const count = n => `${n} fund${n === 1 ? '' : 's'}`;
-    $('#exCat').innerHTML = [...groups].map(([g, list]) =>
-      `<optgroup label="${esc(groupLabel(g))}">${list.map(c => {
-        const n = c.n.Direct + c.n.Regular;
-        return `<option value="${esc(c.k)}" data-desc="${c.n.Direct} direct, ${c.n.Regular} regular" data-sub="${esc(groupLabel(g))}, ${esc(count(n))}"${c.k === state.cat ? ' selected' : ''}>${esc(shortCategory(c.k))}</option>`;
-      }).join('')}</optgroup>`).join('');
     $('#exMetric').innerHTML = MEASURES.map(m => `<option value="${m.key}" data-desc="${esc(m.about)}"${m.key === state.metric ? ' selected' : ''}>${esc(m.label)}</option>`).join('');
-    picker($('#exCat'), { search: true, minWidth: 320 });
     picker($('#exMetric'), { minWidth: 340 });
-    $('#exQ').value = state.q;
+    fillAmcs();
+    picker($('#exAmc'), { search: true, minWidth: 300, title: 'Fund house' });
     $$('input[name="ex-plan"]').forEach(r => { r.checked = r.value === state.plan; });
-    $$('input[name="ex-top"]').forEach(r => { r.checked = r.value === String(state.top); });
-    $$('input[name="ex-age"]').forEach(r => { r.checked = r.value === String(state.age); });
+    $('#exTop').value = state.top || '';
+    $('#exAge').value = state.age || '';
+    renderChips();
     refreshPickers();
+    const n = D.funds.filter(f => f.h).length;
+    $('#exSub').textContent = `${n.toLocaleString('en-IN')} funds with history · AMFI NAVs of ${fmtDate(D.navDate)}`;
+  }
+
+  function fillAmcs() {
+    const cats = new Set(state.cats);
+    const amcs = [...new Set(D.funds.filter(f => f.m && f.o === 'Growth' && (!cats.size || cats.has(f.k))).map(f => f.a))].sort();
+    if (state.amc && !amcs.includes(state.amc)) state.amc = '';
+    $('#exAmc').innerHTML = `<option value="" data-label="All fund houses">All fund houses</option>` + amcs.map(a => `<option value="${esc(a)}"${a === state.amc ? ' selected' : ''}>${esc(a)}</option>`).join('');
+    $('#exAmc').value = state.amc;
+  }
+
+  function renderChips() {
+    const x = icon('close');
+    $('#exChips').innerHTML = state.cats.map(k => `<span class="xchip"><span>${esc(shortCategory(k))}</span><button type="button" data-rm-cat="${esc(k)}" aria-label="Remove ${esc(shortCategory(k))}">${x}</button></span>`).join('') +
+      state.funds.map(c => { const f = D.byCode.get(c); return f ? `<span class="xchip fund"><span>${esc(f.n)}</span><button type="button" data-rm-fund="${c}" aria-label="Remove ${esc(f.n)}">${x}</button></span>` : ''; }).join('');
+    $('#exPick').placeholder = state.cats.length || state.funds.length ? 'Add another category or fund' : 'Add a category or a fund';
+  }
+
+  function findItems(q) {
+    const words = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length || !D) return [];
+    const cats = catList.filter(c => !state.cats.includes(c.k) && words.every(w => (shortCategory(c.k) + ' ' + groupLabel(c.g)).toLowerCase().includes(w))).slice(0, 8)
+      .map(c => ({ kind: 'cat', c }));
+    const funds = searchFunds(D, q, { limit: 12, filter: f => f.m && !state.funds.includes(f.c) }).map(f => ({ kind: 'fund', f }));
+    return (cats.length ? [{ head: 'Categories' }].concat(cats) : []).concat(funds.length ? [{ head: 'Funds' }].concat(funds) : []);
   }
 
   function bind() {
-    $('#exCat').addEventListener('change', e => { state.cat = e.target.value; state.sel = null; save(); render(); });
-    $('#exMetric').addEventListener('change', e => { state.metric = e.target.value; save(); render(); });
+    combo($('#exPick'), $('#exPickList'), {
+      find: findItems,
+      html: it => it.kind === 'cat'
+        ? `<span class="cl-kind">Category</span>${esc(shortCategory(it.c.k))}<span class="cl-meta">${esc(groupLabel(it.c.g))} · ${it.c.n.Direct} direct, ${it.c.n.Regular} regular</span>`
+        : `${esc(it.f.n)}<span class="tagp">${esc(it.f.p)}</span><span class="cl-meta">${esc(it.f.a)} · ${esc(shortCategory(it.f.k))}</span>`,
+      pick: it => {
+        if (it.kind === 'cat') state.cats.push(it.c.k); else state.funds.push(it.f.c);
+        state.sel = null; save(); fillAmcs(); refreshPickers(); renderChips(); render();
+        $('#exPick').focus();
+      }
+    });
+    $('#exChips').addEventListener('click', e => {
+      const a = e.target.closest('[data-rm-cat]'), b = e.target.closest('[data-rm-fund]');
+      if (a) state.cats = state.cats.filter(k => k !== a.dataset.rmCat);
+      else if (b) state.funds = state.funds.filter(c => c !== +b.dataset.rmFund);
+      else return;
+      e.preventDefault();
+      save(); fillAmcs(); refreshPickers(); renderChips(); render();
+      $('#exPick').focus();
+    });
     $('#exToggle').addEventListener('click', () => {
       const open = $('#exFilters').classList.toggle('more');
       $('#exToggle').setAttribute('aria-expanded', String(open));
     });
-    $$('input[name="ex-top"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { state.top = +r.value; save(); render(); } }));
-    $$('input[name="ex-age"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { state.age = +r.value; save(); render(); } }));
+    $('#exMetric').addEventListener('change', e => { state.metric = e.target.value; save(); renderTable(); });
+    $('#exAmc').addEventListener('change', e => { state.amc = e.target.value; save(); renderTable(); });
+    $$('input[name="ex-plan"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { state.plan = r.value; save(); renderTable(); } }));
+    const setTop = v => { state.top = Math.max(0, Math.min(999, Math.round(+v || 0))); $('#exTop').value = state.top || ''; save(); renderTable(); };
+    $('#exTop').addEventListener('change', e => setTop(e.target.value));
+    $$('[data-top]').forEach(b => b.addEventListener('click', () => setTop(b.dataset.top)));
+    $('#exAge').addEventListener('change', e => { state.age = Math.max(0, Math.min(40, Math.round(+e.target.value || 0))); e.target.value = state.age || ''; save(); renderTable(); });
+    $('#exReset').addEventListener('click', () => {
+      Object.assign(state, { plan: 'Direct', metric: 'rr3med', top: 10, age: 0, amc: '' });
+      save(); fillControls(); render();
+    });
     typeSwitch($('#exView'), { label: 'Show the ranking as', value: view.list, types: [['table', 'Table', 'table'], ['chart', 'Chart', 'hbar']],
       onChange: v => { view.list = v; setPref('exList', v); renderTable(); } });
-    $('#exCards').addEventListener('click', e => { const li = e.target.closest('li[data-code]'); if (li) pick(li); });
-    $('#exCards').addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; const li = e.target.closest('li[data-code]'); if (li) { e.preventDefault(); pick(li); } });
-    let t = null;
-    $('#exQ').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value; save(); render(); }, 120); });
-    $$('input[name="ex-plan"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { state.plan = r.value; state.sel = null; save(); render(); } }));
-    const pick = tr => { state.sel = +tr.dataset.code; save(); renderTable(); renderDetail(true); };
+
+    const pick = code => { state.sel = +code; save(); renderTable(); renderDetail(true); };
+    const onCmp = (input, code) => {
+      if (!window.Picks.toggle(code)) { input.checked = false; $('#exMore').textContent = `You can compare up to ${MAX_CMP} funds at a time. Untick one first.`; }
+    };
+    $('#exCards').addEventListener('click', e => {
+      const box = e.target.closest('input[data-cmp]');
+      if (box) { onCmp(box, box.dataset.cmp); return; }
+      if (e.target.closest('label.fc-cmp')) return;
+      const li = e.target.closest('li[data-code]'); if (li) pick(li.dataset.code);
+    });
+    $('#exCards').addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.target.matches('input')) return;
+      const li = e.target.closest('li[data-code]'); if (li) { e.preventDefault(); pick(li.dataset.code); }
+    });
     $('#exTable').addEventListener('click', e => {
+      const box = e.target.closest('input[data-cmp]');
+      if (box) { onCmp(box, box.dataset.cmp); return; }
+      if (e.target.closest('td.cmpc')) return;
       const th = e.target.closest('th[data-sort]');
-      if (th) { state.metric = th.dataset.sort; $('#exMetric').value = state.metric; refreshPickers(); save(); render(); return; }
-      const tr = e.target.closest('tr[data-code]'); if (tr) pick(tr);
+      if (th) { state.metric = th.dataset.sort; $('#exMetric').value = state.metric; refreshPickers(); save(); renderTable(); return; }
+      const tr = e.target.closest('tr[data-code]'); if (tr) pick(tr.dataset.code);
     });
     $('#exTable').addEventListener('keydown', e => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.target.matches('input')) return;
       const th = e.target.closest('th[data-sort]');
-      if (th) { e.preventDefault(); state.metric = th.dataset.sort; $('#exMetric').value = state.metric; refreshPickers(); save(); render(); const again = $(`#exTable th[data-sort="${state.metric}"]`); if (again) again.focus(); return; }
-      const tr = e.target.closest('tr[data-code]'); if (tr) { e.preventDefault(); pick(tr); }
+      if (th) { e.preventDefault(); state.metric = th.dataset.sort; $('#exMetric').value = state.metric; refreshPickers(); save(); renderTable(); const again = $(`#exTable th[data-sort="${state.metric}"]`); if (again) again.focus(); return; }
+      const tr = e.target.closest('tr[data-code]'); if (tr) { e.preventDefault(); pick(tr.dataset.code); }
     });
     $('#exDetail').addEventListener('click', e => {
       const r = e.target.closest('[data-range]');
       if (r) { state.range = r.dataset.range; save(); renderDetail(false); return; }
       if (e.target.closest('[data-ex-close]')) { state.sel = null; save(); renderTable(); renderDetail(false); return; }
-      if (e.target.closest('[data-ex-sip]')) { emit('mf:add-sip', { code: state.sel }); location.hash = '#portfolio'; return; }
+      if (e.target.closest('[data-ex-sip]')) { emit('mf:add-sip', { code: state.sel }); return; }
+      const c = e.target.closest('[data-ex-cmp]');
+      if (c) {
+        if (!window.Picks.has(state.sel) && !window.Picks.toggle(state.sel)) { $('#exChartNote').textContent = `You can compare up to ${MAX_CMP} funds at a time.`; return; }
+        location.hash = '#compare'; return;
+      }
       const b = e.target.closest('[data-ex-plan]');
       if (b && window.Planner) { window.Planner.addRate(+b.dataset.rate); location.hash = '#plan'; }
     });
+    $('#cmpTrayClear').addEventListener('click', () => window.Picks.set([]));
+    document.addEventListener('mf:picks', () => { renderTray(); if (inited) syncChecks(); });
     document.addEventListener('mf:theme', () => { if (!inited) return; if (state.sel) renderDetail(false); if (view.list === 'chart') renderRankChart(lastShown); });
   }
 
@@ -142,42 +237,54 @@
   function renderFresh() {
     const m = D.meta, built = new Date(m.built_at);
     const h = m.amfi_history || {}, mf = m.mfapi || {}, gaps = m.recent_gaps || {};
-    const lines = [];
-    let first = `NAVs as of <b>${fmtDate(m.nav_date)}</b>, from AMFI's daily NAV file, for ${m.counts.tracked.toLocaleString('en-IN')} funds.`;
-    if (h.ok) {
-      first += ` Recent days re-checked against AMFI's NAV history: ${(h.points_checked || 0).toLocaleString('en-IN')} values checked, ${(h.points_corrected || 0).toLocaleString('en-IN')} corrected.`;
-    }
+    let first = `NAVs as of <b>${fmtDate(m.nav_date)}</b>, from AMFI's daily NAV file.`;
+    if (h.ok) first += ` Recent days re-checked against AMFI's NAV history: ${(h.points_checked || 0).toLocaleString('en-IN')} values checked, ${(h.points_corrected || 0).toLocaleString('en-IN')} corrected.`;
     first += ` Rebuilt ${built.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.`;
-    lines.push(first);
     const warn = [];
     if (!h.ok) warn.push("AMFI's NAV history report couldn't be reached on the last run, so recent days weren't re-checked.");
     if (mf.pending > 0) warn.push(`Older history for ${mf.pending.toLocaleString('en-IN')} funds is still being downloaded and will complete over the next nightly runs.`);
     if (gaps.count > 0) warn.push(`${gaps.count.toLocaleString('en-IN')} funds are missing more than 5 days of NAVs in the last two months.`);
     const corr = (m.corrections || []).slice(0, 10).map(c => `<li>Scheme ${c.code}, ${fmtDate(c.date)}: ${c.was} replaced with AMFI's ${c.amfi}</li>`).join('');
-    $('#exFresh').innerHTML = `<p>${lines.join(' ')}</p>` +
-      (warn.length ? `<p class="warn">${warn.join(' ')}</p>` : '') +
-      `<details><summary>Data sources and checks</summary><ul>
+    $('#exFresh').innerHTML = `<details><summary>${first}</summary><ul>
         <li>Latest NAVs: <a href="${esc(m.sources.latest)}" rel="noopener">${esc(m.sources.latest)}</a> (columns: ${esc((m.navall_columns || []).join('; '))})</li>
         <li>Recent history and corrections: AMFI's NAV history report</li>
         <li>Older history: MFapi.in, a free copy of AMFI's data${mf.latest_date_seen ? `; its newest NAV on the last download was ${fmtDate(mf.latest_date_seen)}` : ''}</li>
+        <li>Launch dates: AMFI's scheme data file${m.scheme_data && m.scheme_data.ok === false ? ' (not available on the last run)' : ''}</li>
         <li>Whenever two sources disagree, AMFI's value is kept.</li>
         ${h.errors && h.errors.length ? `<li class="warn">AMFI history errors: ${esc(h.errors.join(' | '))}</li>` : ''}
-      </ul>${corr ? `<p>Latest corrections:</p><ul>${corr}</ul>` : ''}</details>`;
+      </ul>${corr ? `<p>Latest corrections:</p><ul>${corr}</ul>` : ''}</details>` +
+      (warn.length ? `<p class="warn">${warn.join(' ')}</p>` : '');
   }
 
-  /* ---------- table ---------- */
+  /* ---------- the ranking ---------- */
+  // Direct and Regular plans of one scheme share a name once the plan words are taken out.
+  const pairKey = f => f.a + '|' + f.n.toLowerCase().replace(/\b(direct|regular|plan|growth|option|dir|reg)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
   function ranked() {
     const m = measure(), k = m.key;
-    const q = state.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const cats = new Set(state.cats), picked = new Set(state.funds);
+    const plans = state.plan === 'Both' ? ['Direct', 'Regular'] : [state.plan];
     const minAge = state.age * 365 - 5;
-    const pool = D.funds.filter(f => f.k === state.cat && f.p === state.plan && f.o === 'Growth' && f.m &&
-      (f.m.age || 0) >= minAge && q.every(w => (f.n + ' ' + f.a).toLowerCase().includes(w)));
+    const pool = D.funds.filter(f => f.m && (picked.has(f.c) ||
+      (f.o === 'Growth' && cats.has(f.k) && plans.includes(f.p) && (!state.amc || f.a === state.amc) && (f.m.age || 0) >= minAge)));
     const withValue = pool.filter(f => f.m[k] != null && isFinite(f.m[k]));
     withValue.sort((a, b) => (m.desc ? b.m[k] - a.m[k] : a.m[k] - b.m[k]) || a.n.localeCompare(b.n));
     return { pool, list: withValue, missing: pool.length - withValue.length };
   }
+  function directOf(f) {
+    if (f.p !== 'Regular') return null;
+    const key = pairKey(f);
+    return D.funds.find(x => x.p === 'Direct' && x.o === f.o && x.k === f.k && x.m && pairKey(x) === key) || null;
+  }
+  function gapNote(f) {
+    const d = directOf(f);
+    if (!d || d.m.rr3med == null || f.m.rr3med == null) return '';
+    const gap = d.m.rr3med - f.m.rr3med;
+    if (!(gap > 0.0005)) return '';
+    return `<span class="gapnote" title="The Regular plan pays a distributor's commission out of the fund, which its Direct plan doesn't.">${pct(gap, 1)} a year behind its Direct plan (commission)</span>`;
+  }
+  const subLine = f => [shortCategory(f.k), f.p, launchYear(f) ? `launched ${launchYear(f)}` : '', state.funds.includes(f.c) ? 'you picked it' : ''].filter(Boolean).join(' · ');
 
-  function render() { renderTable(); renderDetail(false); }
+  function render() { renderTable(); renderDetail(false); renderTray(); }
 
   function renderTable() {
     if (!D) return;
@@ -187,45 +294,56 @@
     lastShown = shown;
     const names = new Map();
     shown.forEach(f => names.set(f.n, (names.get(f.n) || 0) + 1));
-    const head = `<thead><tr><th class="rk">#</th><th>Fund</th><th>NAV</th>${COLS.map(c => {
+    const nm = f => names.get(f.n) > 1 && state.plan !== 'Both' ? `${f.n} (${f.c})` : f.n;
+    const cb = f => `<input type="checkbox" data-cmp="${f.c}" aria-label="Compare ${esc(f.n)}"${window.Picks.has(f.c) ? ' checked' : ''}>`;
+    const head = `<thead><tr><th class="cmpc"><span class="sr-only">Compare</span></th><th class="rk">#</th><th class="fundh">Fund</th>${COLS.map(c => {
       const mm = MEASURES.find(x => x.key === c);
-      return `<th data-sort="${c}" class="${c === m.key ? 'is-rank' : ''}" title="Rank by ${esc(mm.label.toLowerCase())}" tabindex="0">${esc(mm.col)}</th>`;
+      return `<th data-sort="${c}" class="${c === m.key ? 'is-rank' : ''}" title="Rank by ${esc(mm.label.toLowerCase())}" tabindex="0">${esc(mm.col)}${c === m.key ? ' ▾' : ''}</th>`;
     }).join('')}</tr></thead>`;
-    const body = shown.map((f, i) => {
-      const nm = names.get(f.n) > 1 ? `${f.n} (${f.c})` : f.n;
-      return `<tr data-code="${f.c}" tabindex="0" class="${f.c === state.sel ? 'is-sel' : ''}">
+    const body = shown.map((f, i) => `<tr data-code="${f.c}" tabindex="0" class="${f.c === state.sel ? 'is-sel' : ''}">
+        <td class="cmpc">${cb(f)}</td>
         <td class="rk">${i + 1}</td>
-        <td class="fund"><span class="fn">${esc(nm)}</span><span class="fa">${esc(f.a)}</span></td>
-        <td>${full2(f.v)}<small>${fmtDate(f.d)}</small></td>
-        ${COLS.map(c => { const x = f.m[c]; const neg = x != null && x < 0 && c !== 'mdd5' && c !== 'vol3'; return `<td class="${c === m.key ? 'is-rank' : ''}${neg ? ' neg' : ''}">${fmtCell(c, x)}</td>`; }).join('')}
-      </tr>`;
-    }).join('');
-    $('#exTable').innerHTML = head + '<tbody>' + (body || `<tr><td colspan="${COLS.length + 3}" class="loading">No ${state.plan.toLowerCase()} growth funds in this category match these filters.</td></tr>`) + '</tbody>';
-    // the same list as cards, which phones show instead of the wide table
-    const mini = MINI.filter(k => k !== m.key).slice(0, 3);
+        <td class="fund"><span class="fn">${esc(nm(f))}</span><span class="fa">${esc(subLine(f))} · ${esc(shortAmc(f.a))}</span>${state.plan === 'Both' ? gapNote(f) : ''}</td>
+        ${COLS.map(c => `<td class="${c === m.key ? 'is-rank' : ''}${negCls(c, f.m[c])}">${fmtCell(c, f.m[c])}</td>`).join('')}
+      </tr>`).join('');
+    const none = !pool.length ? 'Add a category or a fund above to see a ranking.' : `No funds match these filters.`;
+    $('#exTable').innerHTML = head + '<tbody>' + (body || `<tr><td colspan="${COLS.length + 3}" class="loading">${none}</td></tr>`) + '</tbody>';
+    const others = ['rr3med', 'cons', 'mdd5', 'r5', 'r3'].filter(k => k !== m.key).slice(0, 2);
     $('#exCards').innerHTML = shown.map((f, i) => {
-      const nm = names.get(f.n) > 1 ? `${f.n} (${f.c})` : f.n, x = f.m[m.key];
-      const neg = x != null && x < 0 && m.key !== 'mdd5' && m.key !== 'vol3';
+      const x = f.m[m.key];
       return `<li class="fcard${f.c === state.sel ? ' is-sel' : ''}" data-code="${f.c}" tabindex="0" role="button" aria-pressed="${f.c === state.sel}">
-        <span class="fc-rk">${i + 1}</span>
-        <span class="fc-main"><span class="fn">${esc(nm)}</span><span class="fa">${esc(f.a)} · NAV ${full2(f.v)}</span></span>
-        <span class="fc-key${neg ? ' neg' : ''}"><b>${fmtCell(m.key, x)}</b><small>${esc(m.col)}</small></span>
-        <span class="fc-mini">${mini.map(k => { const v = f.m[k]; return `<span class="${v != null && v < 0 ? 'neg' : ''}"><small>${esc(MEASURES.find(z => z.key === k).col)}</small>${fmtCell(k, v)}</span>`; }).join('')}</span>
+        <span class="fc-top"><span class="fc-rk">${i + 1}</span>
+          <span class="fc-main"><span class="fn">${esc(nm(f))}</span><span class="fa">${esc(subLine(f))}</span></span>
+          <label class="fc-cmp">${cb(f)}Compare</label></span>
+        <span class="fc-nums"><span class="key"><b class="${negCls(m.key, x)}">${fmtCell(m.key, x)}</b><small>${esc(m.col)}</small></span>
+          ${others.map(k => `<span><b class="${negCls(k, f.m[k])}">${fmtCell(k, f.m[k])}</b><small>${esc(MEASURES.find(z => z.key === k).col)}</small></span>`).join('')}</span>
+        ${state.plan === 'Both' ? gapNote(f) : ''}
       </li>`;
-    }).join('') || `<li class="fcard"><span></span><span class="fc-main">No ${state.plan.toLowerCase()} growth funds in this category match these filters.</span></li>`;
-    const ageTxt = { 0: 'any age', 3: '3+ years old', 5: '5+ years old', 10: '10+ years old' }[state.age] || 'any age';
-    $('#exToggleSum').textContent = `${state.plan}, ${state.top ? 'top ' + state.top : 'all'}, ${ageTxt}${state.q ? `, “${state.q}”` : ''}`;
-    $('#exCount').innerHTML = pool.length ? `<b>${shown.length}</b> of ${list.length} ${esc(shortCategory(state.cat))} funds, by ${esc(m.col)}` : '';
+    }).join('') || `<li class="fcard"><span class="fc-main">${none}</span></li>`;
+    const nCats = state.cats.length, nFunds = state.funds.length;
+    const what = [nCats ? `${nCats} categor${nCats === 1 ? 'y' : 'ies'}` : '', nFunds ? `${nFunds} fund${nFunds === 1 ? '' : 's'} you picked` : ''].filter(Boolean).join(' plus ');
+    $('#exCount').innerHTML = pool.length ? `Ranking <b>${list.length}</b> fund${list.length === 1 ? '' : 's'} from ${esc(what)}${state.plan === 'Both' ? ', Direct and Regular' : `, ${state.plan} plans`}. ${state.top && list.length > state.top ? `Showing the top ${state.top}.` : ''}${nCats > 1 || nFunds ? ' Each fund is compared only with its own category.' : ''}` : '';
+    $('#exToggleSum').textContent = [state.plan === 'Both' ? 'Direct and Regular' : state.plan, state.top ? `top ${state.top}` : 'all', state.age ? `${state.age}+ years` : '', `by ${m.col}`, state.amc ? shortAmc(state.amc) : ''].filter(Boolean).join(' · ');
     const asChart = view.list === 'chart' && shown.length > 0;
     $('#exTableWrap').hidden = asChart;
+    $('#exCards').hidden = asChart;
     $('#exRankWrap').hidden = !asChart;
     if (asChart) renderRankChart(shown); else if (rankChart) { rankChart.destroy(); rankChart = null; }
     const bits = [];
-    bits.push(`Ranked by ${m.label.toLowerCase()}, ${m.desc ? 'highest' : 'lowest'} first. Showing ${shown.length} of ${list.length}.`);
-    if (missing) bits.push(`${missing} more ${missing === 1 ? 'fund has' : 'funds have'} too little history for this measure.`);
-    if (!pool.length) bits.length = 0;
-    bits.push(asChart ? 'Select a bar to see that fund.' : narrow() ? 'Tap a fund to see its chart.' : 'Select a column heading to rank by it, or a fund to see its chart.');
+    if (pool.length) bits.push(`Ranked by ${m.label.toLowerCase()}, ${m.desc ? 'highest' : 'lowest'} first.`);
+    if (missing && pool.length) bits.push(`${missing} more ${missing === 1 ? 'fund has' : 'funds have'} too little history for this measure.`);
+    if (pool.length) bits.push(asChart ? 'Select a bar to see that fund.' : narrow() ? 'Tap a fund to see its chart.' : 'Select a column heading to rank by it, or a fund to see its chart.');
     $('#exMore').textContent = bits.join(' ');
+  }
+  function syncChecks() { $$('#view-explore input[data-cmp]').forEach(x => { x.checked = window.Picks.has(x.dataset.cmp); }); }
+
+  function renderTray() {
+    const list = window.Picks.get();
+    $('#cmpTray').hidden = !list.length;
+    if (!list.length) return;
+    $('#cmpTrayCount').textContent = `${list.length} fund${list.length === 1 ? '' : 's'} picked to compare`;
+    if (!D) { $('#cmpTrayNames').textContent = ''; return; }
+    $('#cmpTrayNames').textContent = list.map(c => { const f = D.byCode.get(c); return f ? f.n.replace(/\s*-\s*(direct|regular).*$/i, '') : c; }).join(', ');
   }
 
   function renderRankChart(shown) {
@@ -263,7 +381,14 @@
     });
   }
 
-  /* ---------- detail ---------- */
+  /* ---------- one fund ---------- */
+  function launchedText(f, m) {
+    if (f.l && f.L) return `Launched <b>${fmtDate(f.L)}</b>; this plan since <b>${fmtDate(f.l)}</b>`;
+    if (f.l) return `Launched <b>${fmtDate(f.l)}</b>`;
+    if (m.inc) return `First NAV <b>${fmtDate(m.inc)}</b>`;
+    if (m.pre2006) return 'Launched before <b>Apr 2006</b>, when AMFI history starts';
+    return 'Launch date not known';
+  }
   async function renderDetail(scroll) {
     const box = $('#exDetail');
     const f = D && state.sel != null ? D.byCode.get(state.sel) : null;
@@ -273,18 +398,20 @@
     const rate = m.r5 != null ? m.r5 : m.r3 != null ? m.r3 : m.rr3med;
     const rateLabel = m.r5 != null ? '5-year' : m.r3 != null ? '3-year' : 'typical 3-year';
     const ratePct = rate != null ? Math.round(rate * 1000) / 10 : null;
-    const launched = m.inc ? `First NAV <b>${fmtDate(m.inc)}</b>` : m.pre2006 ? 'Launched before <b>Apr 2006</b>, when AMFI history starts' : 'Launch date not known yet';
+    const site = amcSite(f.a);
+    const inCmp = window.Picks.has(f.c);
     box.innerHTML = `
       <div class="dt-head">
         <div><h3>${esc(f.n)}</h3><p class="dt-sub">${esc(f.a)}. ${esc(shortCategory(f.k))}, ${esc(f.p)} plan, ${esc(f.o)} option.</p></div>
-        <button type="button" class="btn-quiet" data-ex-close>Close</button>
+        <button type="button" class="btn-icon" data-ex-close aria-label="Close">${icon('close')}</button>
       </div>
       <div class="dt-facts">
         <span>Latest NAV <b>₹${f.v}</b> on ${fmtDate(f.d)}</span>
-        <span>${launched}</span>
+        <span>${launchedText(f, m)}</span>
         <span>Scheme code <b>${f.c}</b></span>
         ${f.i ? `<span>ISIN <b>${esc(f.i)}</b></span>` : ''}
       </div>
+      ${site ? `<div class="dt-links"><a class="login" href="${esc(site.url)}" target="_blank" rel="noopener">Log in at ${esc(shortAmc(site.name))}${icon('out')}</a></div>` : ''}
       <div class="chart-bar">
         <div class="row wrap">
           <div class="seg" role="group" aria-label="Chart period">${RANGES.map(([v, l]) => `<button type="button" class="seg-btn" data-range="${v}" aria-pressed="${state.range === v}">${l}</button>`).join('')}</div>
@@ -294,8 +421,9 @@
       </div>
       <div class="chart-box sm"><canvas id="exChart" role="img" aria-label="Growth of ₹10,000 in this fund"></canvas></div>
       <div class="dt-actions">
-        <button type="button" class="btn-main" data-ex-sip>Add a SIP in this fund</button>
-        ${ratePct != null ? `<button type="button" class="btn-quiet" data-ex-plan data-rate="${ratePct}">Use its ${rateLabel} return (${ratePct}%) in the planner</button>` : ''}
+        <button type="button" class="btn sm" data-ex-sip>${icon('plus')}Add a SIP in this fund</button>
+        <button type="button" class="btn quiet sm" data-ex-cmp>${icon('compare')}${inCmp ? 'Open the comparison' : 'Compare it'}</button>
+        ${ratePct != null ? `<button type="button" class="btn quiet sm" data-ex-plan data-rate="${ratePct}">Use its ${rateLabel} return (${ratePct}%) in Plan</button>` : ''}
       </div>`;
     typeSwitch($('#exFundType'), { label: 'Chart type', value: view.fund,
       types: [['line', 'Line', 'line'], ['area', 'Area', 'area'], ['years', 'Each year', 'bar']],
@@ -309,7 +437,6 @@
     lastHist = { f, hist };
     drawChart(f, hist);
   }
-  let lastHist = null;
 
   /** Calendar-year returns from the NAV history: [{year, r, partial}] */
   function yearly(hist) {
@@ -403,5 +530,6 @@
   }
 
   bind();
+  renderTray();
   document.addEventListener('mf:view', e => { if (e.detail.view === 'explore') init(); });
 })();

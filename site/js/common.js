@@ -1,4 +1,4 @@
-/* Shared helpers for the Explore funds and My portfolio pages. */
+/* Shared helpers for every page: numbers, dates, data, charts, pickers and search boxes. */
 window.MF = (() => {
   'use strict';
 
@@ -90,7 +90,7 @@ window.MF = (() => {
           if (x.i) byIsin.set(x.i, x);
           if (x.i2) byIsin.set(x.i2, x);
         }
-        return { funds: f.funds, byCode, byIsin, meta, navDate: f.nav_date };
+        return { funds: f.funds, byCode, byIsin, meta, navDate: f.nav_date, cats: f.cats || {}, bench: f.bench || {} };
       }).catch(e => { fundsPromise = null; throw e; });
     }
     return fundsPromise;
@@ -127,6 +127,94 @@ window.MF = (() => {
       })().catch(e => { histCache.delete(code); throw e; }));
     }
     return histCache.get(code);
+  }
+
+  /** The typical fund of a category and plan ("<category>|<plan>"), as a NAV-like series from 100. */
+  async function loadCat(D, key) {
+    const c = D && D.cats ? D.cats[key] : null;
+    if (!c || !/^[a-z0-9-]+$/.test(c.f)) return null;
+    return Object.assign(decodeNav(await getJSON(`data/cat/${c.f}.json`)), { funds: c.n });
+  }
+
+  /* ---------- official websites (data/links.json, checked each night) ---------- */
+  let linksPromise = null, linkFind = () => null;
+  function loadLinks() {
+    if (!linksPromise) {
+      linksPromise = getJSON('data/links.json').then(j => {
+        const safe = x => x && /^https:\/\//.test(x.url || '') && x.ok !== false;
+        const pats = (j.amcs || []).filter(safe).map(a => { try { return [new RegExp(a.match, 'i'), a]; } catch (e) { return null; } }).filter(Boolean);
+        linkFind = name => { const hit = name ? pats.find(([re]) => re.test(name)) : null; return hit ? hit[1] : null; };
+        return { portals: (j.portals || []).filter(safe), find: linkFind };
+      }).catch(() => ({ portals: null, find: linkFind }));
+    }
+    return linksPromise;
+  }
+  /** A fund house's website, if the list has one: {name, url}. Call after loadLinks() has settled. */
+  const amcSite = name => linkFind(name);
+  const shortAmc = a => String(a || '').replace(/\s+Mutual Fund$/i, '').trim();
+
+  /* ---------- launch dates ---------- */
+  const launchYear = f => {
+    const d = f && (f.l || f.L || (f.m && f.m.inc));
+    return d ? String(d).slice(0, 4) : '';
+  };
+
+  /* ---------- search ---------- */
+  /** Funds matching every word of q, Growth and Direct first. */
+  function searchFunds(D, q, { limit = 30, filter } = {}) {
+    const words = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length || !D) return [];
+    const out = [];
+    for (const f of D.funds) {
+      if (filter && !filter(f)) continue;
+      const hay = (f.n + ' ' + f.a + ' ' + f.c).toLowerCase();
+      if (words.every(w => hay.includes(w))) {
+        const score = (f.o === 'Growth' ? 0 : 2) + (f.p === 'Direct' ? 0 : 1) + (f.n.toLowerCase().startsWith(words[0]) ? 0 : 0.5) + (f.h ? 0 : 1);
+        out.push([score, f]);
+      }
+    }
+    return out.sort((a, b) => a[0] - b[0] || a[1].n.localeCompare(b[1].n)).slice(0, limit).map(x => x[1]);
+  }
+
+  /** A text box that lists matches as you type: arrow keys, Enter, Escape and the mouse.
+      find(q) returns items; an item with `head` is a group heading. pick(item) is called on a choice. */
+  let comboN = 0;
+  function combo(input, list, { find, html, pick }) {
+    if (!list.id) list.id = 'cb' + (++comboN);
+    let items = [], active = -1;
+    function draw() {
+      list.innerHTML = items.map((it, i) => it.head
+        ? `<li role="presentation" class="cl-head">${esc(it.head)}</li>`
+        : `<li role="option" id="${list.id}-o${i}" data-i="${i}" aria-selected="${i === active}">${html(it)}</li>`).join('');
+      const on = items.length > 0;
+      list.hidden = !on;
+      input.setAttribute('aria-expanded', String(on));
+      if (active >= 0) input.setAttribute('aria-activedescendant', `${list.id}-o${active}`); else input.removeAttribute('aria-activedescendant');
+    }
+    function update() { items = find(input.value) || []; active = items.findIndex(x => !x.head); draw(); }
+    function move(d) {
+      if (!items.length) return;
+      let i = active;
+      for (let n = 0; n < items.length; n++) { i = (i + d + items.length) % items.length; if (!items[i].head) break; }
+      active = i; draw();
+      const li = list.querySelector(`[data-i="${i}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
+    }
+    function choose(i) {
+      const it = items[i];
+      if (!it || it.head) return;
+      input.value = ''; items = []; active = -1; draw();
+      pick(it);
+    }
+    input.addEventListener('input', update);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (!items.length) update(); else move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+      else if (e.key === 'Enter') { if (active >= 0 && items.length) { e.preventDefault(); choose(active); } }
+      else if (e.key === 'Escape' && items.length) { e.preventDefault(); items = []; active = -1; draw(); }
+    });
+    input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) { items = []; active = -1; draw(); } }, 180));
+    list.addEventListener('mousedown', e => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); choose(+li.dataset.i); } });
+    return { update, close() { items = []; active = -1; draw(); } };
   }
 
   function idxOnOrBefore(t, x) {
@@ -200,6 +288,9 @@ window.MF = (() => {
   const groupLabel = g => String(g).replace(/\s+Schemes?$/i, '');
   const icon = (name, cls) => `<svg class="ic${cls ? ' ' + cls : ''}" aria-hidden="true" focusable="false"><use href="#i-${name}"/></svg>`;
   const narrow = () => window.matchMedia && window.matchMedia('(max-width: 760px)').matches;
+  const wide = () => window.matchMedia && window.matchMedia('(min-width: 1024px)').matches;
+  /** The colour for the i-th named slice or line: c1…c6, then grey. */
+  const seriesColor = (c, i) => i < 6 ? c['c' + (i + 1)] : cssVar('--c-other');
 
   /* ---------- chart choices, remembered per chart ---------- */
   const PREFS = 'mf-charts:v1';
@@ -214,7 +305,7 @@ window.MF = (() => {
     el.setAttribute('role', 'radiogroup');
     el.setAttribute('aria-label', label);
     el.innerHTML = types.map(([v, text, ic]) =>
-      `<label><input type="radio" name="${name}" value="${esc(v)}"${v === value ? ' checked' : ''}><span>${ic ? icon(ic) : ''}<span class="t">${esc(text)}</span></span></label>`).join('');
+      `<label title="${esc(text)}"><input type="radio" name="${name}" value="${esc(v)}"${v === value ? ' checked' : ''}><span>${ic ? icon(ic) : ''}<span class="t">${esc(text)}</span></span></label>`).join('');
     el.addEventListener('change', e => { if (e.target.name === name && e.target.checked) onChange(e.target.value); });
     return { set(v) { const r = el.querySelector(`input[value="${CSS.escape(v)}"]`); if (r) r.checked = true; } };
   }
@@ -430,6 +521,7 @@ window.MF = (() => {
     $, $$, DAY, esc, full, full2, cmp, tick, pct, units, isoToMs, msToIso, fmtDate, fmtMonth, todayMs,
     store, cssVar, hexA, colors, currentTheme, getJSON, loadFunds, loadHistory, idxOnOrBefore, idxOnOrAfter,
     xirr, timeAxis, tooltip, reducedMotion, download, emit, shortCategory, groupLabel,
-    icon, narrow, pref, setPref, typeSwitch, picker, refreshPickers
+    icon, narrow, wide, seriesColor, pref, setPref, typeSwitch, picker, refreshPickers,
+    loadCat, decodeNav, loadLinks, amcSite, shortAmc, launchYear, searchFunds, combo
   };
 })();
