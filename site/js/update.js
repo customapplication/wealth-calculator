@@ -69,8 +69,8 @@
           <li>On GitHub, open your picture, then <b>Settings → Developer settings → Personal access tokens → Fine-grained tokens</b>, and press <b>Generate new token</b>.</li>
           <li>Name it <i>SIPs update</i>, choose the longest expiry, and under <b>Repository access</b> pick <b>Only select repositories</b>: ${esc(repo || 'this site\'s repository')}.</li>
           <li>Under <b>Permissions → Repository permissions</b>, set <b>Actions</b> to <b>Read and write</b>. Nothing else. Generate it and copy it.</li>
-          <li>In your Sheet's Apps Script, <b>Project Settings → Script properties</b>, add <code>GITHUB_TOKEN</code> with the token${repo ? '' : ', and <code>GITHUB_REPO</code> with owner/repository'}.</li>
-          <li>Optional: in the Sheet, <b>SIPs → Keep the nightly data update running</b> checks it every morning and restarts it for you.</li>
+          <li>In your Sheet's Apps Script, <b>Project Settings → Script properties</b>, add <code>GITHUB_TOKEN</code> with the token, and <code>GITHUB_REPO</code> with ${repo ? `<code>${esc(repo)}</code>` : 'owner/repository'}.</li>
+          <li>Optional: in the Sheet itself (reload it to see the <b>SIPs</b> menu), choose <b>SIPs → Keep the nightly data update running</b>. It checks every morning and restarts the update for you.</li>
         </ol>${byHand}`;
       return;
     }

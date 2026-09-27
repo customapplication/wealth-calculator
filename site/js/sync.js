@@ -19,9 +19,10 @@ window.Sync = (() => {
   // hold: 'login' when the Sheet wants this device to sign in, 'secret' when its login was removed.
   function fresh(over) {
     return Object.assign({ url: '', secret: '', session: '', user: '', version: 0, account: false, hold: '', out: false,
-      epoch: null, cursor: 0, skew: 0, docs: {}, snap: null, sheetUrl: '', lastOk: 0, lastError: '' }, over);
+      epoch: null, cursor: 0, skew: 0, docs: {}, snap: null, lastOk: 0, lastError: '' }, over);
   }
-  function load() { const s = store.json(KEY, null); return fresh(s && typeof s === 'object' ? s : {}); }
+  // The Sheet's own address was kept here before; the app no longer holds or shows it.
+  function load() { const s = store.json(KEY, null); const st = fresh(s && typeof s === 'object' ? s : {}); delete st.sheetUrl; return st; }
   const persist = () => store.set(KEY, JSON.stringify(S));
   const connected = () => !!(S.url && (S.secret || S.session) && !S.hold);
   const cred = () => S.session ? { session: S.session } : { secret: S.secret };
@@ -226,7 +227,7 @@ window.Sync = (() => {
         for (const k of Object.keys(S.docs)) if (!(k in sent) && !S.docs[k].dirty) { S.docs[k].dirty = 1; again = true; }
         if (S.snap && !('snap' in sent)) { S.snap.dirty = 1; again = true; }
       }
-      Object.assign(S, { epoch: res.epoch, cursor: res.cursor, sheetUrl: res.sheetUrl || S.sheetUrl, lastOk: Date.now(), lastError: '', version: res.version || S.version });
+      Object.assign(S, { epoch: res.epoch, cursor: res.cursor, lastOk: Date.now(), lastError: '', version: res.version || S.version });
       if (res.refused && res.refused.length) S.lastError = `${res.refused.length} record${res.refused.length === 1 ? " wasn't" : "s weren't"} stored: ${res.refused[0].error}.`;
       persist();
       if (report.added || report.removed || report.plan) emit('mf:synced', report);
@@ -289,7 +290,7 @@ window.Sync = (() => {
 
   /** Start syncing: this device's data is stamped as old, so what's already in the Sheet wins. */
   async function begin(fields, first) {
-    S = fresh(Object.assign({ sheetUrl: first.sheetUrl || '', version: first.version || 0, account: !!first.account, user: first.user || '',
+    S = fresh(Object.assign({ version: first.version || 0, account: !!first.account, user: first.user || '',
       skew: typeof first.now === 'number' ? first.now - Date.now() : 0 }, fields));
     scan(undefined, true);
     const snap = window.Portfolio && window.Portfolio.snapshot && window.Portfolio.snapshot();
@@ -406,9 +407,6 @@ window.Sync = (() => {
     st.innerHTML = busy ? 'Syncing with your Sheet…'
       : S.lastError ? `${esc(S.lastError)} Your changes are kept on this device and go up at the next sync.`
       : S.lastOk ? `Your plan and portfolio are in your Sheet. Last synced ${ago(S.lastOk)}.` : 'Not synced yet.';
-    const open = $('#syncOpen');
-    open.hidden = !S.sheetUrl;
-    if (S.sheetUrl) open.href = S.sheetUrl;
   }
 
   function msg(text, bad) { const el = $('#syncMsg'); if (!el) return; el.textContent = text; el.classList.toggle('bad', !!bad); }
