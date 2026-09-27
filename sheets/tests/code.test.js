@@ -41,7 +41,8 @@ test('ping answers with the epoch and the Sheet URL', () => {
   assert.equal(r.ok, true);
   assert.match(r.epoch, /^e[0-9a-z]{8,}$/);
   assert.equal(r.sheetUrl, 'https://docs.google.com/spreadsheets/d/TEST-SHEET/edit');
-  assert.equal(r.version, 2);
+  assert.equal(r.version, 3);
+  assert.equal(r.account, false, 'no login yet');
 });
 
 test("a first sync stores the device's records and says to resync", () => {
@@ -133,6 +134,25 @@ test('a record longer than one cell is split across cells, and one too big is re
   const r = g.sync({ changes: [change('holdings', 'big', 5, huge)] });
   assert.equal(r.refused.length, 1);
   assert.match(r.refused[0].error, /Too large/);
+});
+
+test("a statement fund's folio, registrar, distributor, nominees and KYC reach the Investments tab", () => {
+  const g = setup();
+  const txns = [{ date: '2025-04-10', type: 'PURCHASE_SIP', amount: 1000, units: 10, nav: 100 }];
+  const base = { kind: 'cas', code: 1, isin: 'INF000A01AA1', name: 'Alpha ELSS', amc: 'Alpha Mutual Fund', closeUnits: 10, txns };
+  g.sync({ changes: [
+    change('holdings', 'c1', 5, Object.assign({ id: 'c1', folio: '12345678/90', rta: 'CAMS', advisor: 'ARN-00001', nominees: ['MADE UP NOMINEE'], kyc: 'OK', panOk: true }, base)),
+    change('holdings', 'c2', 5, Object.assign({ id: 'c2', folio: '555/1', rta: 'KFINTECH', advisor: 'DIRECT', nominees: [], kyc: 'ON HOLD', panOk: false }, base)),
+    change('holdings', 'c3', 5, Object.assign({ id: 'c3', folio: '••••4321' }, base))
+  ] });
+  const inv = g.ss.getSheetByName('Investments').dump();
+  const col = n => inv[0].indexOf(n);
+  assert.deepEqual(inv.slice(1).map(r => [r[col('Folio')], r[col('Registrar')], r[col('Distributor')], r[col('Nominees')], r[col('KYC and PAN')]]), [
+    ['12345678/90', 'CAMS', 'ARN-00001', 'MADE UP NOMINEE', 'KYC OK, PAN OK'],
+    ['555/1', 'KFINTECH', 'DIRECT', 'None on the statement', 'KYC ON HOLD, PAN not OK'],
+    ['••••4321', '', '', '', '']
+  ], 'the whole folio as text, and nothing guessed for a fund imported before these were read');
+  assert.equal(g.ss.getSheetByName('Transactions').dump()[1][1], '12345678/90');
 });
 
 test('refuses records it does not keep', () => {

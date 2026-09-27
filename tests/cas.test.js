@@ -48,7 +48,7 @@ function statement({ dropRow = false } = {}) {
     it(53, 301, 'Folio No:'), it(111, 301, '12345678 / 90'), it(354, 301, 'PAN:'), it(369, 301, 'ABCDE1234F'), it(502, 301, 'KYC: OK PAN: OK'),
     it(53, 280, 'A12-Alpha Flexi Cap Fund - Direct Plan - Growth (formerly Alpha Equity Fund) (Non'), it(509, 281, 'Registrar : CAMS'),
     it(53, 272, '-Demat) - ISIN:', 60), it(116, 272, 'INF', 12.6), it(128.6, 272, '999', 12.6), it(141.2, 272, 'A', 4.2), it(145.4, 272, '01234', 21), it(170, 272, '(Advisor: DIRECT)'),
-    it(55, 262, 'Nominee 1:'), it(245, 262, 'Nominee 2:'), it(414, 262, 'Nominee 3:'),
+    it(55, 262, 'Nominee 1:'), it(100, 262, 'MADE UP NOMINEE'), it(245, 262, 'Nominee 2:'), it(290, 262, 'SECOND MADEUP'), it(414, 262, 'Nominee 3:'),
     it(475, 252, 'Opening Unit Balance: 0.000'),
     ...txn(243, '10-Apr-2019', 'SIP Purchase - Instalment 1/120 - via Internet', 4999.75, 100, 49.9975, 100),
     ...txn(235, '10-Apr-2019', '*** Stamp Duty ***', 0.25),
@@ -78,7 +78,9 @@ function statement({ dropRow = false } = {}) {
     it(96, 572, 'Internet (NEFT)'),
     it(53, 562, 'Closing Unit Balance: 1,195.455'), it(180, 562, 'NAV on 31-Mar-2026: INR 17.5665'), it(300, 562, 'Total Cost Value: 10,800.00'),
     it(426, 556, `Market Value on 31-Mar-2026: INR ${f2(betaValue)}`),
-    it(53, 545, '"Please ensure that your account information is up to date."'),
+    it(53, 549, 'Current Load Structure: Exit Load: 1% if redeemed on or before 365 days'),
+    it(53, 543, 'from the date of allotment. Nil after that.'),
+    it(53, 537, '"Please ensure that your account information is up to date."'),
     it(527, 532, 'Registrar :'), it(53, 530, 'B9DG-Beta Small Cap Fund - Direct Plan - Growth (Non Demat) - ISIN: INF000B01BB9'), it(529, 524, 'KFINTECH'),
     it(55, 512, 'Nominee 1:'),
     it(475, 502, 'Opening Unit Balance: 0.000'),
@@ -104,8 +106,14 @@ test('reads every fund, transaction and check from a statement', () => {
   assert.equal(alpha.isin, 'INF999A01234', 'an ISIN drawn in pieces is joined');
   assert.equal(alpha.name, 'Alpha Flexi Cap Fund - Direct Plan - Growth', 'code, old name and demat note are dropped');
   assert.equal(alpha.amc, 'Alpha Mutual Fund');
-  assert.equal(alpha.folio, '••••7890');
+  assert.equal(alpha.folio, '12345678/90', 'the whole folio, spaces taken out');
   assert.equal(alpha.rta, 'CAMS');
+  assert.equal(alpha.advisor, 'DIRECT');
+  assert.equal(alpha.demat, false);
+  assert.equal(alpha.kyc, 'OK');
+  assert.equal(alpha.pan_ok, true);
+  assert.deepEqual(alpha.nominees, ['MADE UP NOMINEE', 'SECOND MADEUP']);
+  assert.equal(alpha.load, 'Entry Load: Nil. Exit Load: 1% if redeemed within 1 year.');
   assert.equal(alpha.close_units, 148);
   assert.equal(alpha.cost, 7400);
   assert.deepEqual(alpha.valuation, { date: '2026-03-31', nav: 70.9459, value: +(148 * 70.9459).toFixed(2) });
@@ -117,6 +125,10 @@ test('reads every fund, transaction and check from a statement', () => {
   assert.equal(beta.rta, 'KFINTECH', 'the registrar on a row of its own');
   assert.equal(beta.isin, 'INF000B01AA1');
   assert.equal(beta.name, 'BETA HYBRID FUND - REGULAR GROWTH');
+  assert.equal(beta.advisor, 'ARN-00001');
+  assert.deepEqual(beta.nominees, [], 'no nominee on this folio');
+  assert.equal(beta.load, 'Current Load Structure: Exit Load: 1% if redeemed on or before 365 days from the date of allotment. Nil after that.',
+    'wording over two rows, without the reminder that follows');
   assert.deepEqual(beta.txns.map(t => t.type), ['SWITCH_IN', 'STAMP_DUTY_TAX', 'DIVIDEND_REINVEST', 'DIVIDEND_PAYOUT', 'SWITCH_OUT', 'PURCHASE']);
   assert.equal(beta.txns[5].desc, 'Purchase - via Internet (NEFT)', 'a wrapped description is joined');
   assert.equal(beta.valuation.value, +(1195.455 * 17.5665).toFixed(2), 'a market value printed below the closing row');
@@ -125,11 +137,13 @@ test('reads every fund, transaction and check from a statement', () => {
   assert.equal(small.name, 'Beta Small Cap Fund - Direct Plan - Growth');
   assert.deepEqual(small.txns.map(t => t.type), ['PURCHASE_SIP', 'STAMP_DUTY_TAX']);
   assert.equal(small.close_units, 20);
+  assert.equal(small.load, null);
+  assert.equal(small.folio, '9876543/21');
 });
 
-test('keeps nothing personal', () => {
+test("keeps nothing personal about the investor", () => {
   const json = JSON.stringify(cas.parse(statement()));
-  for (const s of ['ABCDE1234F', 'test.person', 'Test Person', 'Example Road', '0000000000', '12345678', '9876543']) {
+  for (const s of ['ABCDE1234F', 'test.person', 'Test Person', 'Example Road', '0000000000', 'Mobile']) {
     assert.ok(!json.includes(s), `${s} isn't in the result`);
   }
 });

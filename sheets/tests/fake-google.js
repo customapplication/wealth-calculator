@@ -190,6 +190,7 @@ function load(props, file = 'Code.gs') {
   const properties = new Properties(props);
   const lock = { held: 0, waitLock() { this.held++; }, releaseLock() { this.held--; } };
   const logs = [];
+  const fetches = [], triggers = [], web = { handler: null };
   const ctx = {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss, openById: () => ss, flush() {},
@@ -208,7 +209,28 @@ function load(props, file = 'Code.gs') {
       base64Decode: s => signed(Buffer.from(s, 'base64')),
       newBlob: (data, type, name) => new Blob(typeof data === 'string' ? Buffer.from(data, 'utf8') : data, type, name),
       DigestAlgorithm: { MD5: 'md5', SHA_256: 'sha256' },
-      computeDigest: (alg, bytes) => signed(crypto.createHash(alg).update(typeof bytes === 'string' ? Buffer.from(bytes) : toBuf(bytes)).digest())
+      Charset: { UTF_8: 'utf8' },
+      computeDigest: (alg, bytes) => signed(crypto.createHash(alg).update(typeof bytes === 'string' ? Buffer.from(bytes, 'utf8') : toBuf(bytes)).digest()),
+      getUuid: () => crypto.randomUUID()
+    },
+    UrlFetchApp: {
+      fetch(url, opt = {}) {
+        const call = { url, method: String(opt.method || 'get').toLowerCase(), headers: opt.headers || {}, payload: opt.payload ? JSON.parse(opt.payload) : null };
+        fetches.push(call);
+        const r = (web.handler || (() => ({ code: 404, body: { message: 'Not Found' } })))(call) || { code: 404 };
+        const text = r.body === undefined ? '' : typeof r.body === 'string' ? r.body : JSON.stringify(r.body);
+        return { getResponseCode: () => r.code, getContentText: () => text };
+      }
+    },
+    ScriptApp: {
+      getProjectTriggers: () => triggers.slice(),
+      deleteTrigger: t => { const i = triggers.indexOf(t); if (i >= 0) triggers.splice(i, 1); },
+      newTrigger: fn => {
+        const spec = { fn };
+        const b = { timeBased: () => b, everyDays: n => { spec.days = n; return b; }, atHour: h => { spec.hour = h; return b; },
+          create: () => { const t = { spec, getHandlerFunction: () => fn }; triggers.push(t); return t; } };
+        return b;
+      }
     },
     Session: { getScriptTimeZone: () => 'Asia/Kolkata' },
     console
@@ -221,7 +243,7 @@ function load(props, file = 'Code.gs') {
     if (out.mime !== 'application/json') throw new Error('Answer was not marked as JSON');
     return JSON.parse(out.getContent());
   };
-  return { ctx, ss, drive, properties, lock, logs, post };
+  return { ctx, ss, drive, properties, lock, logs, post, fetches, triggers, web };
 }
 
 module.exports = { load, typed };

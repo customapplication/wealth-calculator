@@ -41,13 +41,33 @@ window.MF = (() => {
   const fmtMonth = x => MONTH_FMT.format(new Date(typeof x === 'string' ? isoToMs(x) : x));
   const todayMs = () => { const n = new Date(); return Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()); };
 
-  /* ---------- storage ---------- */
-  const store = {
+  /* ---------- storage ----------
+     Everything the site keeps is under corpus-planner:* and mf-*. With the lock
+     on (lock.js), those keys are kept encrypted in localStorage and read from
+     memory once unlocked; only the theme and the lock's own settings stay plain. */
+  const raw = {
     get(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { window.localStorage.setItem(k, v); return true; } catch (e) { return false; } },
     del(k) { try { window.localStorage.removeItem(k); } catch (e) { /* unavailable */ } },
-    json(k, fallback) { try { const v = JSON.parse(window.localStorage.getItem(k)); return v == null ? fallback : v; } catch (e) { return fallback; } }
+    keys() { try { return Object.keys(window.localStorage); } catch (e) { return []; } }
   };
+  const PLAIN = new Set(['corpus-planner:theme', 'mf-lock:v1']);
+  const personal = k => /^(corpus-planner:|mf-)/.test(k) && !PLAIN.has(k);
+  let vault = null;          // lock.js hands one over when unlocked: { mem: Map, write(k, v), del(k) }
+  const store = {
+    get(k) { return vault && personal(k) ? (vault.mem.has(k) ? vault.mem.get(k) : null) : raw.get(k); },
+    set(k, v) {
+      if (!(vault && personal(k))) return raw.set(k, v);
+      vault.mem.set(k, String(v)); vault.write(k, String(v)); return true;
+    },
+    del(k) { if (vault && personal(k)) { vault.mem.delete(k); vault.del(k); } else raw.del(k); },
+    json(k, fallback) { try { const v = JSON.parse(store.get(k)); return v == null ? fallback : v; } catch (e) { return fallback; } },
+    raw, personal,
+    useVault(v) { vault = v; }
+  };
+  /** fn(key) when another tab of this site changes something it keeps (after decrypting, with the lock on). */
+  const onStorage = fn => document.addEventListener('mf:storage', e => fn(e.detail.key));
+  window.addEventListener('storage', e => { if (e.key && !vault) document.dispatchEvent(new CustomEvent('mf:storage', { detail: { key: e.key } })); });
 
   /* ---------- theme ---------- */
   const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -522,6 +542,6 @@ window.MF = (() => {
     store, cssVar, hexA, colors, currentTheme, getJSON, loadFunds, loadHistory, idxOnOrBefore, idxOnOrAfter,
     xirr, timeAxis, tooltip, reducedMotion, download, emit, shortCategory, groupLabel,
     icon, narrow, wide, seriesColor, pref, setPref, typeSwitch, picker, refreshPickers,
-    loadCat, decodeNav, loadLinks, amcSite, shortAmc, launchYear, searchFunds, combo
+    loadCat, decodeNav, loadLinks, amcSite, shortAmc, launchYear, searchFunds, combo, onStorage
   };
 })();

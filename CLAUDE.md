@@ -10,7 +10,9 @@ Read this first in every session. It records what this project is, how it's buil
 - **Explore funds** (`site/js/explore.js`): rank any mix of SEBI categories and picked funds by a chosen measure, computed from AMFI NAVs, with Direct/Regular/both, top N, years running and fund house filters. Tick up to 5 funds to compare.
 - **Compare** (`site/js/compare.js`, reached from Explore): growth of ₹10,000, the category's typical fund and a benchmark the owner can change.
 - **Plan** (`site/js/planner.js`): SIP, step-up SIP and SWP calculator, shown as an editable sentence, with an editable calculation engine.
-- **Google Sheet sync** (`site/js/sync.js` + `sheets/Code.gs`): optional. Keeps the plan and portfolio in a Sheet the owner owns, and in step across devices.
+- **Google Sheet sync** (`site/js/sync.js` + `sheets/Code.gs`): optional. Keeps the plan and portfolio in a Sheet the owner owns, and in step across devices. From Code.gs v3, a login (name and password) replaces the secret, with per-device sessions.
+- **Lock** (`site/js/lock.js` + `site/js/security.js`): a 6-digit PIN per device, the password, and fingerprint or face (passkey PRF) open the site; personal storage is encrypted at rest; auto-lock after N minutes away.
+- **Fund data update** (`site/js/update.js`, through Code.gs): "Update now" re-enables and dispatches the nightly GitHub workflow with a token held in the script's properties; an optional daily Apps Script trigger does the same when GitHub pauses it.
 - **Drive archive** (`pipeline/archive.py` + `sheets/Archive.gs`): optional. The nightly job keeps each day's NAVAll.txt and a monthly copy of the NAV history in the owner's Google Drive.
 
 ## Owner's requirements (decided, don't change without asking)
@@ -29,6 +31,8 @@ Read this first in every session. It records what this project is, how it's buil
   - Nightly tests stay as they are.
   - The name is "SIPs", with no repo rename.
   - Fund house, MF Central, CAMS and KFintech links, plus in-app CAS import. No PAN-based fetch, since no legal free API exists.
+  - The statement import keeps the whole folio, the nominees' names, registrar, ARN/DIRECT, KYC and PAN status (never the PAN), demat, statement cost and value, and the exit load wording (owner asked, 27 Sep 2026). Name, PAN, email, phone, address and bank never.
+  - A fetch button so a paused nightly workflow doesn't leave the data stale: done through the Sheet's script (GitHub token in Script properties), plus an optional daily check.
 - Google Sheets goes through an Apps Script web app bound to the Sheet, the same pattern as the owner's other apps: no Google Cloud project, no OAuth client, nothing to renew. The owner chose this over Google Identity Services. Every request carries a secret, so it isn't an open URL.
 
 ## Layout
@@ -48,8 +52,10 @@ pipeline/            nightly data build (Python 3.12, requests + numpy)
 tests/cas.test.js    node:test for site/js/cas.js against a made-up statement laid out like pdf.js reads a real one
 sheets/Code.gs       Apps Script sync backend, pasted into the owner's Sheet unchanged (@OnlyCurrentDoc)
 sheets/Archive.gs    Apps Script Drive archive, a separate standalone project (needs Drive scope, so kept apart)
-sheets/tests/        node:test against fake-google.js, an in-memory SpreadsheetApp/DriveApp/Properties/Lock/Content
-site/                static site: index.html, manifest.webmanifest, icons/, css/app.css, js/{common,planner,explore,compare,cas,portfolio,sync,app}.js
+sheets/tests/        node:test against fake-google.js, an in-memory SpreadsheetApp/DriveApp/Properties/Lock/Content/UrlFetch/ScriptApp
+                     code.test.js (sync), login.test.js (login, recovery, devices, GitHub update), archive.test.js
+site/                static site: index.html, manifest.webmanifest, icons/, css/app.css,
+                     js/{common,lock,planner,explore,compare,cas,portfolio,sync,security,update,app}.js
 site/vendor/         Chart.js 4.4.1 and PDF.js 5.4.624 (legacy build, .mjs renamed .js), served by the site itself; see its README
 .github/workflows/nightly.yml  02:00 IST: tests -> build (+ Drive archive) -> Pages deploy; .cache kept via actions/cache; keepalive job
 .github/workflows/tests.yml    pytest + node tests on pull requests
@@ -78,10 +84,12 @@ site/vendor/         Chart.js 4.4.1 and PDF.js 5.4.624 (legacy build, .mjs renam
 
 - Plain classic scripts, no build step, no framework. Chart.js 4.4.1 and PDF.js are served from `site/vendor/`, not a CDN: no third-party script runs on the page that holds the portfolio or reads the statement.
 - `planner.js` came from a self-contained calculator. All its selectors are scoped to `#view-plan`. Don't reuse its IDs, or `data-key` / `data-focus` attributes, on other pages.
-- Script order: common, planner, explore, compare, cas, portfolio, sync, app.
+- Script order: index.html loads only `common.js` and `lock.js`. lock.js shows the lock screen if `mf-lock:v1` exists, and once unlocked (or straight away) appends planner, explore, compare, cas, portfolio, sync, security, update, app with `async=false`. An inline head script adds `html.locked` before paint, so nothing of the app shows while locked.
 - Shell (`app.js`): views `home portfolio explore compare plan` (Compare highlights Explore in the nav). Forms live in panels (`.panel`, `role=dialog`): `panelImport`, `panelAdd`, `panelSheet`, `panelBench`, and the plan's `planRail`. `[data-open-panel="<id>"]` (optional `data-focus-sel`) opens one, `[data-panel-close]`, the scrim and Esc close it; focus is trapped, then returns to the opener (or, if it was redrawn, to the element with its id or `data-focus`). `window.Shell.openPanel(id, focusSel)`, `closePanel()`, `isOpen(id)`; the old `openDrawer`/`closeDrawer` still work.
-- Cross-page events on `document`: `mf:view` {view}, `mf:theme`, `mf:add-sip` {code}, `mf:picks` {list} (funds ticked to compare, `window.Picks`), `mf:panel` {id, open}. `window.Planner.addRate(pct)` adds a return rate to the planner.
-- localStorage keys: `corpus-planner:v1`, `corpus-planner:engine`, `corpus-planner:theme`, `corpus-planner:view`, `mf-explore:v1` (cats, funds, plan, metric, top, age, amc, sel, range, cmp), `mf-compare:v1` (range, anchor), `mf-bench:v1` ({cat: {category: [codes]}, fund: {code: [codes]}}), `mf-portfolio:v1`, `mf-portfolio:v1:view` (scope, mode, group, range), `mf-sync:v1` (the Sheet URL, secret, cursor and per-record sync state), `mf-charts:v1` (chosen chart types: plan, planMix, pfTime, pfMix, pfMixBy, exFund, exList). The `corpus-planner:*` and `mf-*` names stay, so nothing already saved is lost.
+- Cross-page events on `document`: `mf:view` {view}, `mf:theme`, `mf:add-sip` {code}, `mf:picks` {list} (funds ticked to compare, `window.Picks`), `mf:panel` {id, open}, `mf:storage` {key}, `mf:account` {signedIn, keys, hold} (sync.js to security.js).
+- Panels also include `panelSecurity` (rendered by security.js into `#secBody`) and `panelData` (update.js). Home has `#dataStale` (data over 30 h old) and `#acctNote` (sign in / signed out). `window.Planner.addRate(pct)` adds a return rate to the planner.
+- Storage goes through `MF.store` (planner.js uses it too). With the lock on, every `corpus-planner:*` and `mf-*` key except `corpus-planner:theme` and `mf-lock:v1` is stored as `enc1:` + base64url(iv ‖ AES-GCM ciphertext) under the device's data key, and read from memory once unlocked (`store.useVault`). Cross-tab changes arrive as `mf:storage` {key} (decrypted first): listen with `MF.onStorage`, never `window` 'storage'. `store.raw` bypasses the vault.
+- localStorage keys: `mf-lock:v1` (plain: user, the data key wrapped by PIN / password / passkey PRF, PIN tries, auto-lock minutes, the Sheet URL for recovery while locked), `corpus-planner:v1`, `corpus-planner:engine`, `corpus-planner:theme`, `corpus-planner:view`, `mf-explore:v1` (cats, funds, plan, metric, top, age, amc, sel, range, cmp), `mf-compare:v1` (range, anchor), `mf-bench:v1` ({cat: {category: [codes]}, fund: {code: [codes]}}), `mf-portfolio:v1`, `mf-portfolio:v1:view` (scope, mode, group, range), `mf-sync:v1` (the Sheet URL, secret or session, user, version, hold, cursor and per-record sync state), `mf-charts:v1` (chosen chart types: plan, planMix, pfTime, pfMix, pfMixBy, exFund, exList). The `corpus-planner:*` and `mf-*` names stay, so nothing already saved is lost.
 - Shared components in `common.js`:
   - `MF.picker(select, {search, minWidth, title})` puts a button and panel in front of a native `<select>`, which stays as the value holder: code keeps reading `.value` and `change`. Options can carry `data-desc`, `data-sub` and `data-label`. After setting `.value` in code, call `MF.refreshPickers()`. On phones the panel is a bottom sheet.
   - `MF.typeSwitch(el, {label, types, value, onChange})` renders native radios with icons, so arrow keys work.
@@ -107,7 +115,9 @@ site/vendor/         Chart.js 4.4.1 and PDF.js 5.4.624 (legacy build, .mjs renam
   - `read(ArrayBuffer, password, progress)` loads `vendor/pdfjs/pdf.min.js` with a dynamic `import()`. `parse(pages)` is pure: pdf.js text items become rows (±2.5 pt, touching pieces joined without a space), then a state machine.
   - The state machine reads: AMC line, `Folio No`, the scheme heading (can wrap, ISIN drawn in pieces, `Registrar :` / `KFINTECH` on its own row), `Opening Unit Balance`, dated transaction rows (numbers placed in Amount/Units/Price/Balance by the table header's column centres), then `Closing Unit Balance` / `NAV on` / `Total Cost Value` / `Market Value on`.
   - Transaction types use casparser's names (PURCHASE, PURCHASE_SIP, REDEMPTION, SWITCH_IN/OUT(_MERGER), DIVIDEND_PAYOUT/REINVEST, STAMP_DUTY_TAX, STT_TAX, TDS_TAX, REVERSAL, SEGREGATION), plus BONUS, TRANSFER_IN/OUT and MISC. A wordless charge row counts as stamp duty only when it's 0.005% of a same-day purchase.
-  - Every scheme is checked (opening + units = closing, and each printed running balance), as is the total value against the page-1 summary. Folios keep only their last 4 characters; name, PAN, email, phone and address are never read into the result, and the password is never stored.
+  - Every scheme is checked (opening + units = closing, and each printed running balance), as is the total value against the page-1 summary. Name, PAN, email, phone and address are never read into the result, and the password is never stored.
+  - Also read per scheme: `folio` (whole, "12345678/90"), `rta`, `advisor` ("ARN-…" or "DIRECT"), `demat`, `kyc` and `pan_ok` (statuses from the folio line, not the PAN), `nominees` (names from "Nominee 1: … Nominee 2: …"), `cost`, and `load` (the exit load wording after the closing balance, up to 9 rows or 800 characters, stopped at the KYC reminder "Please ensure…", which can break over rows).
+  - `importCas` keys holdings by ISIN + the folio's last 4 characters, so statements imported when only "••••1234" was kept still merge; it then stores the whole folio. `casFacts()` copies rta/advisor/demat/kyc/panOk/nominees/load/stmt from the newest statement. ELSS lock-in (`elssLock`): units bought in the last 3 years, with the next free date.
   - `importCas` merges by ISIN + folio. The new statement replaces its own period's transactions, and older ones stay. Holdings carry `from`, `asOf` and `openUnits`, and ids are kept so sync updates rather than replaces.
   - Checked against a real CAMS + KFintech statement: every scheme's units add up, and the value matches the summary. No statement, or anything from one, goes in the repo (`*.pdf` is gitignored); fixtures are made up.
 - Google Sheet sync rules (`sync.js`, `Code.gs`):
@@ -116,8 +126,21 @@ site/vendor/         Chart.js 4.4.1 and PDF.js 5.4.624 (legacy build, .mjs renam
   - The plan's `tab`, `chartMode` and `valueMode` stay per device. The edited engine source isn't synced; it's code, and it stays on the device that wrote it.
   - On connect, what the device already holds is stamped `at = 1`, so data already in the Sheet wins. An untouched (default) plan is never sent.
   - The `SECRET` lives in Script properties, never in `Code.gs`. The URL and secret live only in `mf-sync:v1`. Readable tabs (Portfolio, Investments, Transactions, Plan) are rebuilt after every write; strings pass through `text_()` against formula injection.
-  - `Code.gs` VERSION 2 (Sep 2026) adds Fund house and Goal to the Investments tab and names the menu SIPs. `Archive.gs` renames a *Corpus planner archive* folder to *SIPs archive* rather than starting a new one.
-- Design (from the owner-approved mockups): Anek Latin for figures and headings, IBM Plex Sans for text, Plex Mono only for code (Google Fonts, with fallbacks). Indigo `--accent` #2E44B2 on a #F2F3F7 background with white cards, the validated c1–c6 series colours, crimson for losses and withdrawals. The chart code still reads the older names (`--muted`, `--rule`, `--stamp`, `--wd`, `--cond`…), which are aliases of the new tokens. Sentence case everywhere, no all-caps labels, plain active-voice copy. Keep light/dark tokens in sync; both themes exist.
+  - `Code.gs` VERSION 2 (Sep 2026) added Fund house and Goal to the Investments tab and named the menu SIPs. `Archive.gs` renames a *Corpus planner archive* folder to *SIPs archive* rather than starting a new one.
+  - `Code.gs` VERSION 3 (27 Sep 2026): the login and the fund data update.
+    - Open actions (no secret or session): `hello` {account}, `login` {user, auth, device}, `questions` {user}, `recover` {user, rec, newAuth, newRec}; `register` needs the secret and no existing login.
+    - With a login, every other action needs `session`; the secret alone gets `login: true`. A session unknown or idle 400 days gets `signedOut: true`; a session with no login gets `noAccount: true`. Without a login, the secret works as before.
+    - Script properties: `account` {user, auth: sha256(auth proof), rec: sha256(recovery proof), q[3]}, `sessions` {sha256(token): {n, c, s}} (max 20), `guard` (login: 5 tries then 15 min doubling to a day; recover: 3 tries then 1 h doubling), `watch` (last daily check), `repo` (learned from the site). The owner sets `SECRET`, and for the data update `GITHUB_TOKEN` (fine-grained, this repo, Actions read/write) and optionally `GITHUB_REPO`, `GITHUB_BRANCH`.
+    - Signed-in actions: `devices`, `signOut` {which: 'others' | id prefix}, `logout`, `changePassword` {auth, newAuth, others}, `newRecovery` {auth, questions, rec}, `dataStatus` {repo}, `dataRefresh` {repo}.
+    - `dataRefresh` enables the workflow (any disabled state) and dispatches `nightly.yml` on `main`, unless a run is going or started under 10 minutes ago. `checkNightly()` (daily trigger from the menu) enables only `disabled_inactivity`, and dispatches only when the last success is over 26 h old.
+    - Menu: Keep the nightly data update running / Check it now / Stop the daily check, Sign out every device, Remove the login (back to the secret).
+- Keys (lock.js; the same derivation on every device):
+  - user = trimmed, lower case, single spaces. master = PBKDF2-SHA256(password, "SIPs login v1|" + user, 600,000). auth = HKDF(master, "SIPs auth") as base64url, sent to the script. data = HKDF(master, "SIPs data"), an AES-GCM key that wraps the device's random 32-byte data key and never leaves the device.
+  - recovery proof = HKDF(PBKDF2(answers + "\n" + code, "SIPs recovery v1|" + user), "SIPs recovery"). Answers keep only letters and digits, lower case. The code is 20 characters of Crockford base32 (shown XXXXX-XXXXX-XXXXX-XXXXX), used once: `recover` sets a new one.
+  - PIN key = PBKDF2(PIN, random 16-byte salt, 600,000). 5 wrong PINs delete the PIN copy. Passkey key = HKDF(PRF output, "SIPs biometric"); offered only when the platform authenticator reports PRF.
+  - A password that doesn't open the local copy but that the Sheet accepts (changed or recovered elsewhere) rebuilds the device: its encrypted keys are deleted, a new data key is made, and sync pulls everything back.
+  - Sign-out semantics: on `signedOut`, sync.js resets its state first (so nothing is read as a deletion), removes the portfolio, plan and bench keys, and reloads; the Sheet keeps everything.
+- Design (from the owner-approved mockups, including the PIN lock screen): Anek Latin for figures and headings, IBM Plex Sans for text, Plex Mono only for code (Google Fonts, with fallbacks). Indigo `--accent` #2E44B2 on a #F2F3F7 background with white cards, the validated c1–c6 series colours, crimson for losses and withdrawals. The chart code still reads the older names (`--muted`, `--rule`, `--stamp`, `--wd`, `--cond`…), which are aliases of the new tokens. Sentence case everywhere, no all-caps labels, plain active-voice copy. Keep light/dark tokens in sync; both themes exist.
 
 ## How to test
 
@@ -133,6 +156,13 @@ python -m http.server -d site 8000
 The site was also smoke-tested in jsdom against pipeline-built synthetic data: rankings, fund chart, planner hand-off, manual SIP, CAS import with a units check, and failure states. XIRR was verified: a SIP in a fund growing exactly 12% a year gives 12.00%. Those harness scripts aren't in the repo.
 
 Google Sheet sync was tested end to end in Chromium (Playwright). Two browser profiles acted as two devices, with the Apps Script URL routed to the real `Code.gs` running on `fake-google.js`. The test covered connect, both directions, removal, offline then back, conflicting edits, two tabs, CAS import to the Transactions tab, a wrong secret, another app's URL, and a phone-width dark layout. That script isn't in the repo either.
+
+The lock and the login (27 Sep 2026) were tested the same way, with Code.gs v3 on fake-google.js:
+- Encryption at rest (no fund name in plain storage), nothing of the app loaded while locked, wrong and right PINs, 5 wrong PINs then the password and a new PIN.
+- Fingerprint unlock through a CDP virtual authenticator with PRF, two unlocked tabs in step, auto-lock after time away, turning the lock off.
+- Making the login on a secret-connected device, a secret-only device asked to sign in (keeping its data), a new phone signing in and choosing a PIN, the devices list, signing out every other device (the signed-out device's copy removed, the Sheet untouched).
+- Recovery from the lock screen, then a device signed out by it opening with the new password from its lock screen and resyncing; the old recovery code refused.
+- Update now: the stale banner, a paused workflow switched on and dispatched, the run followed to success.
 
 The rebuilt UI (27 Sep 2026) was tested the same way, on synthetic data, at 1440px light and 390px dark:
 - Statement PDFs: one without a password imports at once; a locked one asks, explains a wrong password, then merges (the same statement twice adds nothing).
@@ -165,14 +195,12 @@ The owner's 9-point request of 27 Sep 2026, in this order (each its own change):
    - Nightly launch dates, category medians, benchmarks and link checks.
    - Mockups published (see Status).
    - The UI rebuilt to the mockups: Home, grouped Portfolio with login pills and goals, Explore filters, Compare with the editable benchmark, and the Plan sentence and corpus donut.
-2. **Next, security:**
-   - Username and password with PBKDF2, giving two keys: one proves the owner to Apps Script (only its hash is kept in Script properties), the other is an AES-GCM key.
-   - Local data encrypted.
-   - A PIN per device (5 tries), plus WebAuthn where the browser supports it.
-   - Auto-lock, and signing out other devices.
-   - Reset with 3 security questions plus a one-time recovery code, rate-limited by the script, and a menu reset for the Sheet's owner. Sheet tabs stay readable.
-   - This needs another `Code.gs` change: a new version for the owner to paste and deploy.
+   - Security: login with sessions, encrypted local data, a PIN per device (5 tries), fingerprint or face via passkey PRF, auto-lock, signing out devices, recovery by 3 questions plus a one-time code, menu resets. Code.gs v3.
+   - The statement's folio, nominees, registrar, distributor, KYC/PAN status, cost and exit load; ELSS lock-in.
+   - "Update now" and the daily check for a paused nightly workflow.
+2. **Owner to do after merging:** paste Code.gs v3 and deploy a new version, run `checkNightly` once to allow the new permissions, make the login on the site, add `GITHUB_TOKEN`, and choose SIPs → Keep the nightly data update running.
 3. **Still open, not scheduled:**
+   - Capital gains from the statement's transactions (FIFO, the ₹1.25 lakh LTCG allowance, STCG/LTCG split), and units still under exit load.
    - Swap the fixtures' illustrative rows for real ones from the Drive archive.
    - Rankings summary to the Sheet.
    - TER and AUM from AMFI.

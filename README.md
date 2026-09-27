@@ -9,6 +9,8 @@ The site has these pages:
 - **Explore funds**: search for categories and funds, add as many as you like, and rank them by the measure you choose. Filter by Direct, Regular or both, the top N, how many years a fund has been running, and fund house. Select a fund to see its NAV chart and launch date, send its return to the planner, or start a SIP in it. Tick up to 5 funds to compare them.
 - **Compare**: ₹10,000 put into each fund over 1, 3, 5 or 10 years or since launch, next to the typical fund in its category and a benchmark. The benchmark is an index fund by default, and you can change it to one or more funds, for one fund or its whole category.
 - **Plan**: the SIP, step-up SIP and SWP calculator, written as a sentence you can edit, with what your corpus is made of, and the editable engine.
+- **Security**: a 6-digit PIN (or your fingerprint or face) opens SIPs, and everything it keeps on the device is encrypted. With your Google Sheet connected, one name and password signs in every device, and you can sign any of them out.
+- **Fund data**: if GitHub ever pauses the nightly update, **Update now** starts it again from the site.
 
 Every chart has a switch for its type: line, area or bars for anything over time, and donut, pie or bars for what you hold. On a computer the pages are in a menu on the left, and forms open in a panel on the right. On a phone there's a tab bar at the bottom and forms slide up from it. To use it like an app, open it in your phone's browser and choose **Add to Home screen** (on an iPhone, Share → **Add to Home Screen**).
 
@@ -28,7 +30,16 @@ After that, the build runs every night at 02:00 IST, after AMFI has published th
 
 GitHub pauses scheduled workflows in a public repository after 60 days without activity. The workflow's small **keepalive** job switches the workflow on again after every scheduled run, through GitHub's own API, so the 60 days never run out and no commits are needed.
 
-If GitHub ever pauses it anyway, it emails you. Open the **Actions** tab, choose **Nightly mutual fund data**, press **Enable workflow**, then **Run workflow** once to catch up.
+If GitHub ever pauses it anyway, it emails you, and Home shows **Fund data is out of date** once the data is over 30 hours old. You can start it again three ways:
+
+- **From the site, with one button.** Open **Fund data** (from that notice, or **Update the fund data** on Explore) and press **Update now**. It switches the paused job back on, runs it (the Drive archive included) and follows it until the new data is up. This goes through your Google Sheet's script, which holds a GitHub token; set it up once:
+  1. On GitHub, open your picture, then **Settings → Developer settings → Personal access tokens → Fine-grained tokens**, and press **Generate new token**.
+  2. Name it *SIPs update*, choose the longest expiry, and under **Repository access** pick **Only select repositories** and this repository.
+  3. Under **Permissions → Repository permissions**, set **Actions** to **Read and write**. Nothing else. Generate the token and copy it.
+  4. In your Sheet's Apps Script, open **Project Settings → Script properties** and add `GITHUB_TOKEN` with the token. If the site has its own domain rather than `github.io`, also add `GITHUB_REPO` with `owner/repository`.
+  The token stays in the script's properties; it's never in the site or this repository. When it expires, the panel says so: make a new one and replace the property.
+- **Every morning, on its own.** In the Sheet, choose **SIPs → Keep the nightly data update running**. The script then checks at about 5 am: if GitHub paused the job it switches it back on, and if the last good update is more than 26 hours old it starts one. A job you turned off by hand on GitHub is left off. **Stop the daily check** turns this off.
+- **By hand on GitHub.** Open the **Actions** tab, choose **Nightly mutual fund data**, press **Enable workflow** if it shows, then **Run workflow**.
 
 ## Run it on your computer
 
@@ -93,7 +104,22 @@ There are two ways to add investments:
 - **By hand.** Enter the fund, SIP amount, debit day, start month and optional yearly step-up. Each instalment is priced at the first NAV on or after the debit date, less the 0.005% stamp duty charged since July 2020. Your real allotment can land a day or two later, so treat these as close estimates.
 - **From your CAS, exactly.** Request a **Detailed** Consolidated Account Statement (CAMS + KFintech) from camsonline.com, MF Central or KFintech, covering the period from before your first investment to today. It arrives by email as a PDF. Choose **Import statement** on Home or Portfolio and pick the PDF. A PDF without a password is imported straight away. If it has one, the page asks for it: type it and press **Open and import**. The password is used only to open the file, and never stored.
 
-  The PDF is read in your browser, by a copy of PDF.js that this site serves itself, and it's never uploaded. The page keeps each fund's ISIN, name and fund house, the last 4 characters of the folio, and every transaction; your name, PAN, email, phone and address aren't kept. For every fund it checks that the opening units plus each transaction add up to the statement's closing balance, and it tells you if any don't.
+  The PDF is read in your browser, by a copy of PDF.js that this site serves itself, and it's never uploaded. For every fund it checks that the opening units plus each transaction add up to the statement's closing balance, and it tells you if any don't.
+
+  What it keeps from the statement, for each fund:
+
+  | Kept | Shown |
+  |---|---|
+  | Every transaction: date, type, amount, units, NAV | the value, gain and XIRR, and the Transactions tab |
+  | ISIN, name and fund house | everywhere, with a **Log in at …** pill |
+  | The folio number, whole | its last 4 digits, with **Show** for the rest |
+  | The registrar (CAMS or KFintech) | a link to its service site |
+  | The distributor's ARN, or DIRECT | whether a commission is paid from the plan |
+  | The nominees' names, as printed | a note for any folio that shows none |
+  | Whether KYC and PAN are marked OK | a warning when they aren't |
+  | Demat or not, the statement's cost and value, and its exit load wording | under **Folio, nominees and exit load** |
+
+  Your name, PAN, email, phone, address and bank details are never read into it. For ELSS funds the page also works out how much is still in the 3-year lock-in, and when the next units free up.
 
   Importing a newer statement later merges with what's there: for each fund, the new statement replaces its own period and older transactions stay. A statement that starts after your first investment can't show your full cost, and the page says which funds are affected.
 
@@ -110,7 +136,7 @@ The Sheet gets four tabs you can read, sort and chart:
 | Tab | What's in it |
 |---|---|
 | Portfolio | Each investment's units, money put in, worth, gain and XIRR, and the total. Updated whenever you open the site. |
-| Investments | Every SIP, one-time investment and statement fund, as you entered it, with its fund house and goal |
+| Investments | Every SIP, one-time investment and statement fund, as you entered it, with its fund house, goal, folio, registrar, distributor, nominees, and KYC and PAN status |
 | Transactions | Every transaction from your imported CAS statement |
 | Plan | The inputs on the Plan page |
 
@@ -120,13 +146,14 @@ A hidden `_data` tab holds the records the devices sync. Edit on the site: chang
 
 1. Go to [sheets.new](https://sheets.new) to make a blank Google Sheet, and give it a name, such as *SIPs*.
 2. In the Sheet, open **Extensions → Apps Script**. Delete the code that's there, paste in the whole of [`sheets/Code.gs`](sheets/Code.gs) from this repository, and press **Save** (the disk icon). Don't edit the file; nothing in it needs changing.
-3. Make a secret. On the site, open **Google Sheet** (the card at the bottom of the menu on a computer; on a phone, **Portfolio → Sync and backup → Google Sheet**) and press **Make a new secret**. It fills the Secret box with a random 32-character value and copies it. Any long random string of 16 characters or more works too.
+3. Make a secret. On the site, open **Google Sheet** (the card at the bottom of the menu on a computer; on a phone, **Portfolio → Sync and backup → Google Sheet**). Paste nothing yet: the secret box appears after step 8's **Continue**, so you can also do this step then. **Make a new secret** fills the Secret box with a random 32-character value and copies it. Any long random string of 16 characters or more works too.
 4. Back in Apps Script, open **Project Settings** (the gear icon on the left). Under **Script Properties**, press **Add script property** (or **Edit script properties**, then **Add script property**). Enter `SECRET` as the property and paste the secret as the value, then press **Save script properties**. The secret lives here, never in the code, so `Code.gs` in this public repository stays free of it.
 5. Press **Deploy → New deployment**. Next to **Select type**, press the gear and choose **Web app**. Set **Execute as** to **Me** and **Who has access** to **Anyone**, then press **Deploy**.
-6. Press **Authorize access** and choose your Google account. Google warns *"Google hasn't verified this app"*. That's expected, because the app is the script you just pasted. Press **Advanced**, then **Go to (your project) (unsafe)**, then **Allow**.
+6. Press **Authorize access** and choose your Google account. Google warns *"Google hasn't verified this app"*. That's expected, because the app is the script you just pasted. Press **Advanced**, then **Go to (your project) (unsafe)**, then **Allow**. It asks to see and edit this one Sheet, to connect to an external service (GitHub, only for **Update now**), and to run while you're away (only for the optional daily check).
 7. Copy the **Web app URL**. It starts with `https://script.google.com/` and ends in `/exec`.
-8. On the site, paste the URL into **Web app URL**. The secret should still be in the **Secret** box; if not, paste it there too. Press **Connect**. You'll see *Connected*, and Home shows **Sheet synced**.
-9. On every other phone or computer, open the site, open **Google Sheet** the same way, and paste the same URL and secret.
+8. On the site, paste the URL into **Web app URL** and press **Continue**. Paste the secret into the **Secret** box that appears, and press **Connect**. You'll see *Connected*, and Home shows **Sheet synced**.
+9. Make your login: open **Security**, choose **Make your login**, and follow [Lock and login](#lock-and-login). Keep the recovery code it shows you.
+10. On every other phone or computer, open the site, open **Google Sheet**, paste the URL, press **Continue**, and sign in with your name and password. Then choose that device's PIN.
 
 Connect the device that holds your real data first. When a device connects, its investments are added to what the Sheet holds. If the Sheet already has a plan, it replaces the plan on the device that's connecting, unless that device's plan was never changed from the defaults.
 
@@ -136,19 +163,35 @@ Connect the device that holds your real data first. When a device connects, its 
 - If you're offline, changes wait on the device and go up at the next sync. Home shows **Sheet not updated** until they do.
 - Your investments, goals, plan and benchmark choices sync. Chart types, filters and which page you were on stay on each device.
 - When two devices change the same thing, the later change wins. Removing an investment removes it everywhere.
-- **Open the Sheet** in the Google Sheet panel opens it. The Sheet also has a **SIPs** menu with *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, and *Erase the synced data*.
+- **Open the Sheet** in the Google Sheet panel opens it. The Sheet also has a **SIPs** menu: *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, *Keep the nightly data update running* (and *Check it now*, *Stop the daily check*), *Sign out every device*, *Remove the login*, and *Erase the synced data*.
 - **Disconnect this device** stops syncing and keeps the data on the device and in the Sheet.
 
 ### After you change `Code.gs`
 
-Paste the new version into Apps Script and save. Then choose **Deploy → Manage deployments**, press the pencil icon, set **Version** to **New version**, and press **Deploy**. The URL stays the same. Saving alone doesn't change what the URL runs. To check, open the URL in a browser: it shows the running `version` (2 for this release).
+Paste the new version into Apps Script and save. Then choose **Deploy → Manage deployments**, press the pencil icon, set **Version** to **New version**, and press **Deploy**. The URL stays the same. Saving alone doesn't change what the URL runs. To check, open the URL in a browser: it shows the running `version` (3 for this release).
+
+Version 3 asks Google for two more permissions: to connect to an external service (GitHub, for **Update now**) and to run while you're away (the daily check). After deploying, choose `checkNightly` in the editor's function list, press **Run** once, and allow them; until you do, the site can't reach the new version.
 
 ### Keeping it private
 
 - The Sheet holds your portfolio in readable form. Share it with nobody, and turn on 2-step verification for the Google account that owns it.
-- Anyone with both the URL and the secret can read and change what's synced, so treat them like a password. They're stored only in each browser you connect, never in the site or this repository.
+- Until you make a login, anyone with both the URL and the secret can read and change what's synced, so treat them like a password. After it, the secret no longer opens the data: each device needs your name and password. The URL, secret and sessions are stored only in each browser you connect (encrypted, with the lock on), never in the site or this repository.
 - If you think the secret has leaked, change the `SECRET` script property to a new value (no new deployment needed) and connect each device again with it.
 - The script is limited to this one Sheet (`@OnlyCurrentDoc`), so the permission Google asks for in step 6 covers only it, not your other files. It runs as you, and the only requests it accepts are the site's sync with the right secret.
+
+## Lock and login
+
+Open **Security** in the menu (on a phone, **Portfolio → Security and devices**).
+
+- **A PIN for each device.** Your investments, plan, settings and Sheet connection are then stored encrypted in the browser. The lock screen asks for the 6-digit PIN; after 5 wrong PINs the device forgets its PIN key and only your password opens it (then you choose a new PIN). SIPs locks itself after 5 minutes away, or the time you choose, and **Lock now** locks it at once.
+- **Fingerprint or face**, on browsers that can use a passkey to unlock data (recent Chrome on Android, Safari on iPhone and Mac): **Use fingerprint or face** in Security.
+- **One login for every device**, once your Google Sheet is connected with `Code.gs` version 3. On the first device, choose **Make your login**: a name, a password of 10 or more characters, 3 security questions, and this device's PIN. You'll get a **recovery code**: write it down. From then on the secret alone no longer opens your data; each device opens **Google Sheet**, pastes the URL, presses **Continue**, and signs in with the name and password.
+- **Devices**: Security lists every signed-in device. **Sign out** one, or **Sign out every other device**: at its next sync, a signed-out device loses its copy of your data (your Sheet keeps it) and has to sign in again.
+- **Forgot your password?** On the lock screen, or in Google Sheet, answer your 3 questions and type the recovery code to set a new password. The code is used up: you get a new one, and every other device is signed out. If the questions or code are lost too, the Sheet's owner can choose **SIPs → Remove the login** in the Sheet, connect with the secret, and make a new login.
+
+How it works: your name and password go through PBKDF2 (600,000 rounds) to make two keys. One proves you to your Sheet's script, which stores only its SHA-256; the other never leaves the device and opens this device's data key. The PIN (PBKDF2 with its own salt) and your fingerprint (a passkey's PRF secret) each keep another copy of that data key. The recovery proof is made the same way from your answers and the recovery code. The script pauses logins for 15 minutes after 5 wrong passwords, and recovery for an hour after 3 wrong tries, for longer each time.
+
+What it protects against: someone picking up your phone or computer, someone who has only the Sheet's URL, and a device you've lost (sign it out). A PIN is short, though: someone who copied this browser's stored files could try every PIN on their own computer. Keep your phone's own screen lock on, and use a long password.
 
 ## Keep a copy of AMFI's data in Google Drive (optional)
 
@@ -172,7 +215,7 @@ It's a second, separate Apps Script, so the Sheet sync script stays limited to i
 6. In the GitHub repository, open **Settings → Secrets and variables → Actions** and press **New repository secret** twice:
    - Name `ARCHIVE_URL`, secret: the web app URL.
    - Name `ARCHIVE_SECRET`, secret: the same secret as step 3.
-7. Run the workflow once from the **Actions** tab. When it finishes, the folder **SIPs archive** is in your Drive with today's file and the first history copy. A folder made by the earlier version, *Corpus planner archive*, is kept and renamed.
+7. Run the workflow once from the **Actions** tab (or **Update now** on the site). When it finishes, the folder **SIPs archive** is in your Drive with today's file and the first history copy. A folder made by the earlier version, *Corpus planner archive*, is kept and renamed.
 
 The run's log says what was stored, and `meta.json` on the site has an `archive` section. If Drive can't be reached, the site is still built and published; the file for that night is simply missed.
 
@@ -207,7 +250,7 @@ Edit `pipeline/config.json`:
 ```bash
 pip install -r pipeline/requirements-dev.txt
 python -m pytest pipeline/tests
-node --test sheets/tests/*.test.js    # both Apps Scripts (Sheet sync and Drive archive), against simulated Google services
+node --test sheets/tests/*.test.js    # both Apps Scripts (sync, login, fund data update, Drive archive), against simulated Google services
 node --test tests/*.test.js           # the in-browser CAS reader, against a made-up statement
 ```
 

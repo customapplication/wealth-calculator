@@ -139,7 +139,8 @@ const DEFAULTS = {
   chartMode: 'all', valueMode: 'nominal', tab: 'ledger'
 };
 const KEY = 'corpus-planner:v1', KEY_ENGINE = 'corpus-planner:engine';
-const store = {
+// The site's store, which keeps these encrypted when the lock is on.
+const store = window.MF ? MF.store : {
   get(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { window.localStorage.setItem(k, v); } catch (e) { /* storage unavailable */ } },
   del(k) { try { window.localStorage.removeItem(k); } catch (e) { /* storage unavailable */ } }
