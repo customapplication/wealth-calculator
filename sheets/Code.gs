@@ -51,7 +51,7 @@
  *   GITHUB_TOKEN  a fine-grained personal access token for the one repository,
  *                 with Actions: Read and write (nothing else)
  *   GITHUB_REPO   owner/repository, e.g. customapplication/wealth-calculator.
- *                 Optional: the site sends its own, which is kept.
+ *                 The daily check needs it; Update now on the site also fills it in.
  *
  * WHAT IS STORED
  *   _data (hidden tab), one row per record:
@@ -471,7 +471,7 @@ function runOf_(x) {
 function nightly_(body) {
   if (!ghToken_()) return { configured: false };
   var repo = repo_(body);
-  if (!repo) return { configured: true, error: 'Add GITHUB_REPO (owner/repository) to the script properties.' };
+  if (!repo) return { configured: true, error: 'Add the script property GITHUB_REPO with your repository as owner/name, e.g. customapplication/wealth-calculator. (Update now on the site also fills it in.)' };
   var base = '/repos/' + repo + '/actions/workflows/' + WORKFLOW;
   var w = github_('get', base);
   if (w.code !== 200) return { configured: true, repo: repo, error: ghError_(w, repo) };
