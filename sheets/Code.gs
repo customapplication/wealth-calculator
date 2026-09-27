@@ -1,7 +1,7 @@
 /** @OnlyCurrentDoc */
 
 /**
- * Google Sheet sync for SIPs, v5.
+ * Google Sheet sync for SIPs, v6.
  *
  * Keeps your plan and your portfolio in a Google Sheet that you own, and in
  * step across every browser you connect: a web app bound to the Sheet, a
@@ -26,6 +26,10 @@
  * name, even before anyone joins), rebuilds the tabs when someone joins or is
  * removed, adds each investment's SIP (running, or when it stopped) to the
  * Portfolio tab, and the SIP details you give a statement fund to Investments.
+ *
+ * v6 adds a Comparisons tab (the comparisons saved on the site's Compare page),
+ * and a family summary: the owner can let a family member see everyone's
+ * portfolio summary on the site (fund names and figures only, read-only).
  *
  * SETUP (about five minutes, once; README.md has the same steps in full):
  *   1. Create a blank Google Sheet.
@@ -87,7 +91,7 @@
  */
 
 var APP = 'corpus-planner';
-var VERSION = 5;
+var VERSION = 6;
 var MIN_SECRET = 16;
 
 var MINUTE = 60000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
@@ -108,7 +112,7 @@ var CHUNK_MARK = '~';       // starts every stored piece; Sheets never reads it 
 var COLLECTIONS = { holdings: true, settings: true, snapshot: true };
 var PULLED = { holdings: true, settings: true };   // the snapshot is written by devices, never sent back
 var ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
-var TABS = ['Portfolio', 'Investments', 'Transactions', 'Plan'];
+var TABS = ['Portfolio', 'Investments', 'Transactions', 'Plan', 'Comparisons'];
 
 /** The Sheet this script is attached to (Extensions -> Apps Script). */
 function book_() { return SpreadsheetApp.getActiveSpreadsheet(); }
@@ -149,7 +153,8 @@ var OPEN = { login: login_, questions: questions_, recover: recover_, register: 
 var SIGNED = {
   ping: ping_, sync: sync_, devices: devices_, signOut: signOut_, logout: logout_,
   changePassword: changePassword_, newRecovery: newRecovery_, dataStatus: dataStatus_, dataRefresh: dataRefresh_,
-  members: members_, invite: invite_, cancelInvites: cancelInvites_, removeMember: removeMember_
+  members: members_, invite: invite_, cancelInvites: cancelInvites_, removeMember: removeMember_,
+  shareSummary: shareSummary_, familySummary: familySummary_
 };
 
 function doPost(e) {
@@ -576,11 +581,50 @@ function members_(body, who) {
   var accts = accounts_(), all = sessions_(), inv = invites_();
   var list = Object.keys(accts).map(function (u) {
     var mine = sessionsOf_(all, u, accts);
-    return { user: u, role: accts[u].role, created: accts[u].created, devices: mine.length,
+    return { user: u, role: accts[u].role, created: accts[u].created, devices: mine.length, sees: accts[u].role === 'owner' || !!accts[u].sees,
              seen: mine.reduce(function (m, h) { return Math.max(m, all[h].s); }, 0), you: u === who.user };
   }).sort(function (a, b) { return (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1) || a.user.localeCompare(b.user); });
   return { ok: true, app: APP, members: list, kept: Object.keys(kept_(accts)).sort(),
            invites: Object.keys(inv).map(function (h) { return { exp: inv[h].exp, user: inv[h].user || '' }; }), max: MAX_PROFILES };
+}
+
+/** Let a family member see the family summary on the site, or stop them (the owner always can). */
+function shareSummary_(body, who) {
+  var no = ownerOnly_(who);
+  if (no) return no;
+  var accts = accounts_(), user = normUser_(body.user), acct = accts[user];
+  if (!acct) return { ok: false, app: APP, error: "There's no one called " + (user || 'that') + ' on this Sheet.' };
+  if (acct.role === 'owner') return { ok: false, app: APP, error: 'The owner always sees the family summary.' };
+  if (body.on) acct.sees = true; else delete acct.sees;
+  saveAccount_(acct);
+  return members_(body, who);
+}
+
+/**
+ * Everyone's portfolio summary, for the owner and the members the owner lets
+ * see it: each person's latest valuation (fund names and figures; no folios,
+ * nominees, units or transactions). Read-only: there's nothing to write back.
+ */
+function familySummary_(body, who) {
+  var accts = accounts_(), me = who.user && accts[who.user];
+  if (!who.session || !me) return { ok: false, app: APP, notAllowed: true, error: 'Make a login first.' };
+  if (me.role !== 'owner' && !me.sees) return { ok: false, app: APP, notAllowed: true, error: "The Sheet's owner hasn't shared the family summary with you." };
+  var list = people_(readTable_(), accts).filter(function (p) { return !p.m || accts[p.m]; });
+  var r2 = function (x) { var n = Number(x); return isFinite(n) && x !== null && x !== '' ? Math.round(n * 100) / 100 : null; };
+  var rate = function (x) { var n = Number(x); return isFinite(n) && x !== null && x !== '' ? Math.round(n * 1e6) / 1e6 : null; };
+  var out = list.map(function (p) {
+    var snap = p.snapshot && p.snapshot.d, t = snap && snap.totals;
+    return {
+      name: p.name, role: p.m ? 'member' : 'owner', you: (p.m || ownerName_(accts)) === who.user,
+      valuedAt: p.snapshot ? p.snapshot.at : null, navDate: snap ? String(snap.navDate || '') : '',
+      totals: t ? { net: r2(t.net), value: r2(t.value), gain: r2(t.gain), xirr: rate(t.xirr) } : null,
+      rows: snap && Array.isArray(snap.rows) ? snap.rows.slice(0, 200).map(function (r) {
+        return r.error ? { name: String(r.name || '').slice(0, 200), kind: String(r.kind || ''), error: true }
+          : { name: String(r.name || '').slice(0, 200), kind: String(r.kind || ''), value: r2(r.value), net: r2(r.net), gain: r2(r.gain), xirr: rate(r.xirr), sip: String(r.sip || '').slice(0, 80) };
+      }) : []
+    };
+  });
+  return { ok: true, app: APP, people: out };
 }
 
 /**
@@ -1070,9 +1114,27 @@ function REFRESH_TABS() { return withLock_(function () { refreshViews_(); }); }
 function refreshViews_(t) {
   t = t || readTable_();
   var accts = accounts_(), owner = ownerName_(accts);
+  var list = people_(t, accts);
+  list.forEach(function (p) {
+    p.holdings.sort(function (a, b) {
+      return kindOrder_(a.h.kind) - kindOrder_(b.h.kind) || String(a.h.name || '').localeCompare(String(b.h.name || ''));
+    });
+  });
+  // A Member column once the Sheet has a login (so the owner's name is known) or more than one person's data.
+  var family = list.length > 1 || !!owner;
+  portfolioTab_(list, family);
+  investmentsTab_(list, family);
+  transactionsTab_(list, family);
+  planTab_(list, family);
+  comparisonsTab_(list, family);
+}
+
+/** Each person's live records: [{ m (member key; the owner's is ''), name, holdings, settings, snapshot }], the owner first. */
+function people_(t, accts) {
+  var owner = ownerName_(accts);
   var people = {};                                   // member key -> { name, holdings, settings, snapshot }
   var person = function (m) {
-    if (!people[m]) people[m] = { name: m || owner || 'You', holdings: [], settings: {}, snapshot: null };
+    if (!people[m]) people[m] = { m: m, name: m || owner || 'You', holdings: [], settings: {}, snapshot: null };
     return people[m];
   };
   person('');
@@ -1087,18 +1149,24 @@ function refreshViews_(t) {
     else if (rec.c === 'settings') live.settings[rec.id] = { at: rec.at, d: d };
     else if (rec.c === 'snapshot' && rec.id === 'latest') live.snapshot = { at: rec.at, d: d };
   }
-  var list = Object.keys(people).sort(function (a, b) { return (a ? 1 : 0) - (b ? 1 : 0) || a.localeCompare(b); }).map(function (m) { return people[m]; });
+  return Object.keys(people).sort(function (a, b) { return (a ? 1 : 0) - (b ? 1 : 0) || a.localeCompare(b); }).map(function (m) { return people[m]; });
+}
+
+/** The comparisons saved on the site's Compare page, one row each. */
+function comparisonsTab_(list, family) {
+  var headers = whoHead_(family, ['Name', 'Funds', 'How', 'Amount (₹)', 'Period', 'Saved']);
+  var rows = [];
+  var PERIOD = { '1': '1 year', '3': '3 years', '5': '5 years', '10': '10 years', all: 'Longest there is' };
   list.forEach(function (p) {
-    p.holdings.sort(function (a, b) {
-      return kindOrder_(a.h.kind) - kindOrder_(b.h.kind) || String(a.h.name || '').localeCompare(String(b.h.name || ''));
+    var c = p.settings.compare, saved = c && c.d && Array.isArray(c.d.list) ? c.d.list : [];
+    saved.slice().sort(function (a, b) { return (Number(b.at) || 0) - (Number(a.at) || 0); }).forEach(function (x) {
+      var names = Array.isArray(x.names) && x.names.length ? x.names : (Array.isArray(x.funds) ? x.funds.map(function (f) { return 'Scheme ' + f; }) : []);
+      rows.push(who_(family, p, [text_(x.name), text_(names.join(' · ')), x.mode === 'sip' ? 'Monthly SIP' : 'Lump sum', num_(x.amount),
+        PERIOD[x.range] || '', Number(x.at) > 0 ? new Date(Number(x.at)) : '']));
     });
   });
-  // A Member column once the Sheet has a login (so the owner's name is known) or more than one person's data.
-  var family = list.length > 1 || !!owner;
-  portfolioTab_(list, family);
-  investmentsTab_(list, family);
-  transactionsTab_(list, family);
-  planTab_(list, family);
+  if (!rows.length) rows.push(pad_(["Nothing saved yet. Save a comparison on the site's Compare page and it appears here."], headers.length));
+  tab_('Comparisons', headers, rows, whoFmt_(family, ['@', '@', '@', '#,##0', '@', 'd mmm yyyy h:mm']));
 }
 
 /** With family members, each row starts with its person's name. */

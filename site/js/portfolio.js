@@ -109,7 +109,11 @@
     return null;
   }
   const fundOf = r => (D && r.code ? D.byCode.get(r.code) : null);
-  const nameOf = r => r.h.name || (fundOf(r) ? fundOf(r).n : `Scheme ${r.code}`);
+  // AMFI's current name for the scheme, so a renamed fund shows its new name; what you saved is the fallback.
+  const nameOf = r => (fundOf(r) ? fundOf(r).n : r.h.name || `Scheme ${r.code}`);
+  const normName = n => String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  /** The name you added (or the statement printed), when AMFI's current name differs. */
+  const oldName = r => { const f = fundOf(r); return f && r.h.name && normName(r.h.name) !== normName(f.n) ? r.h.name : null; };
   const amcOf = r => { const f = fundOf(r); return (f && f.a) || r.h.amc || ''; };
 
   function describe(r) {
@@ -134,16 +138,43 @@
       : `<button type="button" class="tagchip sip-off" ${edit} aria-label="SIP stopped${s.end ? ' in ' + fmtMonth(isoToMs(s.end + '-01')) : ''}${seen}. Edit its details">${icon('close')}SIP stopped${s.end ? ' ' + fmtMonth(isoToMs(s.end + '-01')) : ''}</button>`;
   }
 
+  /** A statement fund with no units left (fully sold, or merged into another scheme) needs no NAV to be counted. */
+  function closedOut(r) {
+    const h = r.h;
+    if (h.kind !== 'cas' || h.closeUnits !== 0) return false;
+    r.events = casEvents(h, r.warn);
+    if (!r.events.length) return false;
+    r.hist = null; r.units = 0; r.value = 0; r.lastNav = null;
+    r.lastT = r.events[r.events.length - 1].t;
+    r.moneyIn = r.events.reduce((s, e) => s + Math.max(0, e.inv), 0);
+    r.moneyOut = r.events.reduce((s, e) => s + Math.max(0, -e.inv), 0);
+    r.net = r.moneyIn - r.moneyOut; r.gain = -r.net; r.first = r.events[0].t;
+    r.xirr = xirr(r.events.map(e => ({ t: e.t, v: -e.inv })));
+    r.closed = true;
+    r.warn.push("No units left on your statement (sold, or merged into another scheme), and AMFI no longer lists it, so no NAV is needed. Its money in and out still count.");
+    return true;
+  }
+
   async function buildOne(h) {
     const code = resolveCode(h);
     const r = { h, code, warn: [], error: null };
-    if (!code) { r.error = "Couldn't match this fund to an AMFI scheme code, so it can't be valued."; return r; }
+    if (!code) {
+      if (closedOut(r)) return r;
+      r.error = "Couldn't match this fund to an AMFI scheme code, so it can't be valued."; return r;
+    }
     let hist;
-    try { hist = await loadHistory(code); } catch (e) { r.error = e.message; return r; }
+    try { hist = await loadHistory(code); } catch (e) { if (closedOut(r)) return r; r.error = e.message; return r; }
     r.hist = hist;
     r.events = h.kind === 'sip' ? expandSip(h, hist, r.warn) : h.kind === 'lump' ? expandLump(h, hist, r.warn) : casEvents(h, r.warn);
     r.lastT = hist.t[hist.t.length - 1];
     r.lastNav = hist.v[hist.v.length - 1];
+    // The change since the NAV before, on the units held then (a purchase on the last day isn't a gain).
+    if (hist.t.length > 1) {
+      r.prevT = hist.t[hist.t.length - 2]; r.prevNav = hist.v[hist.v.length - 2];
+      const held = r.events.filter(e => e.t <= r.prevT).reduce((s, e) => s + e.du, 0);
+      r.dayChange = held > 1e-6 ? held * (r.lastNav - r.prevNav) : 0;
+      r.dayBase = held > 1e-6 ? held * r.prevNav : 0;
+    }
     r.units = r.events.reduce((s, e) => s + e.du, 0);
     if (Math.abs(r.units) < 1e-6) r.units = 0;
     r.moneyIn = r.events.reduce((s, e) => s + Math.max(0, e.inv), 0);
@@ -161,7 +192,7 @@
   }
 
   function series(list) {
-    const valid = list.filter(r => !r.error && r.events.length);
+    const valid = list.filter(r => !r.error && r.events.length && r.hist);
     if (!valid.length) return null;
     const start = Math.min(...valid.map(r => r.first)), end = Math.max(...valid.map(r => r.lastT));
     const grid = [];
@@ -182,9 +213,10 @@
 
   function totals(list) {
     const ok = list.filter(r => !r.error);
-    const t = { moneyIn: 0, moneyOut: 0, value: 0, flows: [], first: null, last: null, n: ok.length };
+    const t = { moneyIn: 0, moneyOut: 0, value: 0, flows: [], first: null, last: null, n: ok.length, day: 0, dayBase: 0, prevT: null };
     for (const r of ok) {
       t.moneyIn += r.moneyIn; t.moneyOut += r.moneyOut; t.value += r.value;
+      if (r.dayBase) { t.day += r.dayChange; t.dayBase += r.dayBase; t.prevT = t.prevT == null ? r.prevT : Math.max(t.prevT, r.prevT); }
       r.events.forEach(e => t.flows.push({ t: e.t, v: -e.inv }));
       if (r.value > 0) t.flows.push({ t: r.lastT, v: r.value });
       if (r.first != null) t.first = t.first == null ? r.first : Math.min(t.first, r.first);
@@ -199,6 +231,7 @@
   function groupKey(r, by) {
     const f = fundOf(r);
     if (by === 'amc') return amcOf(r) || 'Fund house not known';
+    if (r.closed && (by === 'cat' || by === 'asset' || by === 'plan')) return 'Sold or merged';
     if (by === 'cat') return f ? shortCategory(f.k) : 'Not in the fund list';
     if (by === 'asset') return assetClass(f);
     if (by === 'plan') return f ? `${f.p} plan` : 'Plan not known';
@@ -279,6 +312,9 @@
     g.className = signCls(t.gain);
     g.textContent = t.first == null ? '' : signed(t.gain, full) + (t.net > 0 ? ` (${pct(Math.abs(t.gain) / t.net, 1)})` : '');
     $('#homeIn').textContent = t.first == null ? 'None of these investments could be valued yet.' : `on ${full(t.net)} put in${t.moneyOut > 0 ? `, after ${full(t.moneyOut)} taken out` : ''}`;
+    const day = $('#homeDay');
+    day.hidden = !(t.dayBase > 0);
+    if (t.dayBase > 0) { day.className = 'hero-day ' + signCls(t.day); day.textContent = `${signed(t.day, full)} (${signed(t.day / t.dayBase, x => pct(x, 2))}) since the previous NAV`; }
     const x = $('#homeXirr');
     x.hidden = t.xirr == null;
     if (t.xirr != null) x.textContent = `${t.xirr >= 0 ? 'Growing' : 'Shrinking'} ${pct(Math.abs(t.xirr), 1)} a year (XIRR)`;
@@ -480,6 +516,7 @@
     const h = r.h;
     if (h.kind !== 'cas') return '';
     const row = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`, rows = [];
+    if (oldName(r)) rows.push(row('Name on your statement', esc(oldName(r))));
     if (h.folio) {
       rows.push(row('Folio', `<span class="folio" data-full="${esc(h.folio)}" data-short="••••${esc(folioEnd(h.folio))}">••••${esc(folioEnd(h.folio))}</span>
         <button type="button" class="linkish" data-folio aria-pressed="false">Show</button>`));
@@ -498,6 +535,7 @@
     return `<details class="hold-more"><summary>Folio, nominees and exit load</summary><dl>${rows.join('')}</dl></details>`;
   }
 
+  const navText = v => v == null ? '—' : Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
   function holdingHtml(r) {
     const h = r.h, name = esc(nameOf(r));
     const goal = (h.goal || '').trim();
@@ -521,7 +559,10 @@
     return `<article class="hold">
       <div class="hold-top"><span class="hold-name">${name}</span><span class="hold-worth">${full(r.value)}</span></div>
       <div class="hold-meta"><span>${describe(r)}</span><span class="pct ${signCls(r.gain)}">${g != null ? signed(g, x => pct(x, 1)) : ''}</span></div>
-      <div class="hold-nums"><span>Put in <b>${full(r.net)}</b></span><span>Gain <b class="${signCls(r.gain)}">${signed(r.gain, full)}</b></span><span>XIRR <b>${r.xirr != null ? pct(r.xirr, 1) : '—'}</b></span><span>${units(r.units)} units · NAV of ${fmtDate(r.lastT)}</span></div>
+      <div class="hold-nums">${r.closed ? `<span>In <b>${full(r.moneyIn)}</b> · out <b>${full(r.moneyOut)}</b></span>` : `<span>Put in <b>${full(r.net)}</b></span>`}<span>Gain <b class="${signCls(r.gain)}">${signed(r.gain, full)}</b></span><span>XIRR <b>${r.xirr != null ? pct(r.xirr, 1) : '—'}</b></span>${r.closed
+        ? `<span>No units left · last transaction ${fmtDate(r.lastT)}</span>`
+        : `<span>${units(r.units)} units × NAV <b>₹${navText(r.lastNav)}</b> of ${fmtDate(r.lastT)}</span>${r.dayBase > 0 ? `<span>Since ${fmtDate(r.prevT)} <b class="${signCls(r.dayChange)}">${signed(r.dayChange, full)}</b></span>` : ''}`}</div>
+      ${oldName(r) && r.h.kind !== 'cas' ? `<p class="muted small">AMFI now calls it this; you added it as “${esc(oldName(r))}”.</p>` : ''}
       ${r.warn.length ? `<p class="muted small">${r.warn.map(esc).join(' ')}</p>` : ''}
       <div class="hold-tags">${sipChip(r)}${check}${lock}${kyc}${login}${goalBtn}${actions}</div>
       ${casDetails(r)}
@@ -961,6 +1002,12 @@
       if (D) go(); else init().then(go);
     });
     document.addEventListener('mf:panel', e => { if (e.detail.open && (e.detail.id === 'panelAdd' || e.detail.id === 'panelImport')) init(); });
+    // New fund data while the page is open: revalue with the new NAVs.
+    document.addEventListener('mf:data', async () => {
+      if (!initP) return;
+      try { D = await loadFunds(); } catch (e) { /* keep the old list */ }
+      refresh();
+    });
   }
 
   let initP = null;

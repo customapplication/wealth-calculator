@@ -606,6 +606,13 @@
     });
   }
 
+  // New fund data while the page is open: rank again with it.
+  document.addEventListener('mf:data', async () => {
+    if (!inited) return;
+    try { D = await loadFunds(); } catch (e) { return; }
+    fillControls(); renderFresh(); render();
+  });
+
   bind();
   renderTray();
   document.addEventListener('mf:view', e => { if (e.detail.view === 'explore') init(); });

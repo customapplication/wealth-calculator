@@ -23,7 +23,7 @@ window.Lock = (() => {
   const ITER = 600000;
   const PIN_TRIES = 5;
   const APP_SCRIPTS = ['js/calc.js', 'js/planner.js', 'js/explore.js', 'js/compare.js', 'js/cas.js', 'js/portfolio.js', 'js/forecast.js',
-    'js/sync.js', 'js/security.js', 'js/update.js', 'js/app.js'];
+    'js/sync.js', 'js/security.js', 'js/family.js', 'js/update.js', 'js/app.js'];
   const te = new TextEncoder(), td = new TextDecoder();
   const subtle = window.crypto && window.crypto.subtle;
 

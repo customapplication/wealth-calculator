@@ -53,7 +53,9 @@
     return { list: list.filter(c => c && typeof c === 'object' && /^[a-z0-9]{4,16}$/.test(c.id || '') && String(c.name || '').trim()).map(c => ({
       id: c.id, name: String(c.name).trim().slice(0, 60), funds: cleanList(c.funds),
       anchor: Number.isInteger(+c.anchor) ? +c.anchor : null, range: RANGE_KEYS.includes(c.range) ? c.range : '5',
-      mode: c.mode === 'sip' ? 'sip' : 'lump', amount: cleanAmount(c.amount, c.mode === 'sip' ? 5000 : 10000), at: +c.at || 0
+      mode: c.mode === 'sip' ? 'sip' : 'lump', amount: cleanAmount(c.amount, c.mode === 'sip' ? 5000 : 10000), at: +c.at || 0,
+      // the funds' names when saved, so the Sheet's Comparisons tab can show them
+      names: Array.isArray(c.names) ? c.names.slice(0, 5).map(n => String(n).slice(0, 120)) : []
     })).filter(c => c.funds.length).slice(0, 30) };
   }
   let saved = tidySaved(store.json(SKEY, {}));
@@ -63,21 +65,56 @@
     syncSet(d) { saved = tidySaved(d); store.set(SKEY, JSON.stringify(saved)); if (shown) renderSaved(); }
   };
   const sameSet = (a, b) => a.length === b.length && a.every(x => b.includes(x));
+  /** The saved comparison on screen: the one opened, while its funds are still the ones compared. */
+  const current = () => { const c = saved.list.find(x => x.id === state.open); return c && sameSet(c.funds, picks()) ? c : null; };
+  const newest = () => saved.list.slice().sort((a, b) => b.at - a.at);
+  /** Short names, with the plan added where two plans of one scheme would read the same. */
+  function shortNames(codes) {
+    const fs = codes.map(x => D && D.byCode.get(x)).filter(Boolean), names = fs.map(f => plainName(f.n));
+    return fs.map((f, i) => names.indexOf(names[i]) !== names.lastIndexOf(names[i]) ? `${names[i]} (${f.p})` : names[i]);
+  }
+  const rangeLabel = r => (RANGES.find(x => x[0] === r) || RANGES[2])[1];
 
+  /** Saved comparisons: the page's list when nothing is compared, and the switcher above a comparison. */
   function renderSaved() {
-    const box = $('#cmpSaved');
-    box.hidden = !saved.list.length;
-    if (!saved.list.length) return;
-    const now = picks();
-    $('#cmpSavedSub').textContent = `${saved.list.length} saved`;
-    $('#cmpSavedList').innerHTML = saved.list.slice().sort((a, b) => b.at - a.at).map(c => {
-      const names = c.funds.map(x => D && D.byCode.get(x)).filter(Boolean).map(f => plainName(f.n));
-      const on = state.open === c.id && sameSet(c.funds, now);
-      const how = c.mode === 'sip' ? `SIP ${full(c.amount)} a month` : `${full(c.amount)} once`;
-      return `<li${on ? ' aria-current="true"' : ''}><button type="button" class="open" data-open-cmp="${esc(c.id)}"><b>${esc(c.name)}</b>
-          <small>${esc(names.join(', ') || `${c.funds.length} funds`)} · ${how} · ${esc((RANGES.find(r => r[0] === c.range) || RANGES[2])[1])}</small></button>
-        <button type="button" class="rm" data-del-cmp="${esc(c.id)}" aria-label="Remove the saved comparison ${esc(c.name)}">${icon('close')}</button></li>`;
-    }).join('');
+    const list = picks(), n = saved.list.length;
+    $('#cmpSaved').hidden = !n || list.length > 0;
+    $('#cmpEmpty').hidden = n > 0;
+    if (n && !list.length) {
+      $('#cmpSavedSub').textContent = `${n} saved`;
+      $('#cmpSavedList').innerHTML = newest().map(c => {
+        const names = shortNames(c.funds);
+        const how = c.mode === 'sip' ? `SIP ${full(c.amount)} a month` : `${full(c.amount)} once`;
+        return `<li><button type="button" class="open" data-open-cmp="${esc(c.id)}"><b>${esc(c.name)}</b>
+            <small>${esc(names.join(', ') || `${c.funds.length} funds`)} · ${how} · ${esc(rangeLabel(c.range))}</small></button>
+          <button type="button" class="rm" data-del-cmp="${esc(c.id)}" aria-label="Remove the saved comparison ${esc(c.name)}">${icon('close')}</button></li>`;
+      }).join('');
+    }
+    const cur = current(), others = saved.list.filter(c => !cur || c.id !== cur.id);
+    $('#cmpSwitchBox').hidden = !list.length || !others.length;
+    if (list.length && others.length) {
+      $('#cmpSwitch').innerHTML = `<option value="" data-label="Open a saved comparison">${cur ? 'Open another saved comparison' : 'Open a saved comparison'}</option>` +
+        newest().filter(c => !cur || c.id !== cur.id).map(c => `<option value="${esc(c.id)}" data-desc="${esc(c.mode === 'sip' ? `SIP ${full(c.amount)} a month` : `${full(c.amount)} once`)} · ${esc(rangeLabel(c.range))}">${esc(c.name)}</option>`).join('');
+      $('#cmpSwitch').value = '';
+      if (!$('#cmpSwitch').dataset.pick) { $('#cmpSwitch').dataset.pick = '1'; MF.picker($('#cmpSwitch'), { title: 'Saved comparisons', minWidth: 280 }); }
+      MF.refreshPickers();
+    }
+  }
+  /** The page's heading and its actions: a saved comparison's name, Save and Close. */
+  function renderHead() {
+    const list = picks(), cur = current();
+    $('#cmpHeading').textContent = cur ? cur.name : 'Compare funds';
+    $('#cmpEyebrow').hidden = !cur;
+    $('#cmpActs').hidden = !list.length;
+    $('#cmpHome').hidden = list.length > 0;
+    $('#cmpSaveBtn span').textContent = cur ? 'Save changes' : 'Save';
+    document.title = `${cur ? cur.name : 'Compare funds'} · SIPs`;
+  }
+  function closeComparison() {
+    state.open = null; saveState();
+    $('#cmpSaveBox').hidden = true;
+    window.Picks.set([]);
+    $('#cmpHeading').focus();
   }
   function openSaved(id) {
     const c = saved.list.find(x => x.id === id);
@@ -92,7 +129,7 @@
   }
   function showSaveBox() {
     const list = picks(), cur = saved.list.find(c => c.id === state.open);
-    const auto = list.map(c => plainName(D.byCode.get(c).n)).join(' vs ');
+    const auto = shortNames(list).join(' vs ');
     $('#cmpSaveName').value = cur ? cur.name : auto.length > 60 ? auto.slice(0, 57) + '…' : auto;
     $('#cmpSaveMsg').textContent = '';
     $('#cmpSaveBox').hidden = false;
@@ -105,12 +142,12 @@
     let c = saved.list.find(x => x.name.toLowerCase() === name.toLowerCase());
     if (!c && saved.list.length >= 30) { $('#cmpSaveMsg').textContent = 'You can keep 30 comparisons. Remove one first.'; return; }
     if (!c) { c = { id: Math.random().toString(36).slice(2, 10) }; saved.list.push(c); }
-    Object.assign(c, { name, funds: list.slice(), anchor: state.anchor, range: state.range, mode: state.mode, amount: state[state.mode], at: Date.now() });
+    Object.assign(c, { name, funds: list.slice(), names: list.map(x => D.byCode.get(x).n), anchor: state.anchor, range: state.range, mode: state.mode, amount: state[state.mode], at: Date.now() });
     saved = tidySaved(saved);
     state.open = c.id; saveState(); saveSaved();
     $('#cmpSaveBox').hidden = true;
-    renderSaved();
-    $('#cmpSub').textContent = `Saved as “${name}”.`;
+    renderSaved(); renderHead();
+    $('#cmpSub').textContent = `Saved as “${name}”, here and in your Google Sheet if it's connected.`;
   }
 
   /* ---------- the chart ---------- */
@@ -128,11 +165,9 @@
 
   async function render() {
     if (!D) return;
-    renderSaved();
+    renderSaved(); renderHead();
     const list = picks();
-    $('#cmpEmpty').hidden = list.length > 0;
     $('#cmpBody').hidden = !list.length;
-    $('#cmpSaveBtn').hidden = !list.length;
     if (!list.length) { $('#cmpSaveBox').hidden = true; if (chart) { chart.destroy(); chart = null; } return; }
     if (!list.includes(state.anchor)) state.anchor = list[0];
     renderControls();
@@ -258,6 +293,62 @@
       rows.map(([k, fn], i) => `<tr${i === 4 ? ' class="sep"' : ''}><td>${k}</td>${lines.map(l => `<td class="${numeric.has(i) ? 'n' : ''}">${fn(l)}</td>`).join('')}</tr>`).join('') + '</tbody>';
   }
 
+  /* ---------- choosing funds: tick several (Direct or Regular), then apply ---------- */
+  let draft = [], cpPlan = 'both';
+  function openPicker() {
+    if (!D) return;
+    draft = picks();
+    $('#cpSearch').value = '';
+    $('#cpMsg').textContent = '';
+    drawPicker();
+    window.Shell.openPanel('panelCmpPick', '#cpSearch');
+  }
+  function findFunds(q) {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const out = D.funds.filter(f => f.h && (cpPlan === 'both' || f.p === cpPlan) && words.every(w => (f.n + ' ' + f.a + ' ' + f.c).toLowerCase().includes(w)));
+    // Growth before IDCW, then by scheme, with its Direct and Regular plans side by side
+    out.sort((a, b) => (a.o === 'Growth' ? 0 : 1) - (b.o === 'Growth' ? 0 : 1) || plainName(a.n).localeCompare(plainName(b.n)) ||
+      (a.p === 'Direct' ? 0 : 1) - (b.p === 'Direct' ? 0 : 1) || a.n.localeCompare(b.n));
+    return out;
+  }
+  const pickRow = f => `<li><label class="pick-row"><input type="checkbox" data-cp="${f.c}"${draft.includes(f.c) ? ' checked' : ''}>
+      <span class="nm">${esc(f.n)}<small><span class="tagp">${esc(f.p)}</span>${esc(shortAmc(f.a))} · ${esc(shortCategory(f.k))}${f.o !== 'Growth' ? ' · ' + esc(f.o) : ''}</small></span></label></li>`;
+  function drawChosen() {
+    const max = window.Picks.max;
+    $('#cpCount').textContent = `${draft.length} of ${max} chosen`;
+    $('#cpChosen').innerHTML = draft.map(c => { const f = D.byCode.get(c); return f ? `<span class="xchip fund"><span>${esc(plainName(f.n))} · ${esc(f.p)}</span><button type="button" data-cp-rm="${c}" aria-label="Remove ${esc(f.n)}">${icon('close')}</button></span>` : ''; }).join('') ||
+      '<span class="muted small">None chosen yet. Search, tick up to 5 funds, then compare them.</span>';
+    $('#cpApply').textContent = draft.length ? `Compare ${draft.length === 1 ? 'this fund' : `these ${draft.length} funds`}` : 'Compare';
+    $('#cpApply').disabled = !draft.length;
+    $$('#cpList input[data-cp]').forEach(x => { x.checked = draft.includes(+x.dataset.cp); });
+  }
+  function drawPicker() {
+    $$('#cpPlan [data-plan]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.plan === cpPlan)));
+    const q = $('#cpSearch').value.trim();
+    let html = '';
+    if (q) {
+      const found = findFunds(q), shown = found.slice(0, 60);
+      html = shown.map(pickRow).join('') || '<li class="none">No fund matches that. Try fewer words, or the other plan.</li>';
+      $('#cpMsg').textContent = found.length > 60 ? `Showing 60 of ${found.length} matches. Type more to narrow them down.` : found.length ? `${found.length} match${found.length === 1 ? '' : 'es'}.` : '';
+    } else {
+      const chosen = draft.map(c => D.byCode.get(c)).filter(Boolean);
+      const held = (window.Portfolio ? window.Portfolio.held() : []).map(h => D.byCode.get(h.code)).filter(f => f && !draft.includes(f.c) && (cpPlan === 'both' || f.p === cpPlan));
+      html = (chosen.length ? '<li class="cl-head">Chosen</li>' + chosen.map(pickRow).join('') : '') +
+        (held.length ? '<li class="cl-head">Funds you hold</li>' + [...new Map(held.map(f => [f.c, f])).values()].map(pickRow).join('') : '');
+      $('#cpMsg').textContent = html ? '' : 'Search for a fund by name, fund house or scheme code.';
+    }
+    $('#cpList').innerHTML = html;
+    drawChosen();
+  }
+  function toggleDraft(code, on) {
+    const max = window.Picks.max;
+    if (on && !draft.includes(code)) {
+      if (draft.length >= max) { $('#cpMsg').textContent = `You can compare up to ${max} funds. Untick one first.`; drawChosen(); return; }
+      draft.push(code);
+    } else if (!on) draft = draft.filter(c => c !== code);
+    drawChosen();
+  }
+
   /* ---------- the benchmark panel ---------- */
   function openBench() {
     const f = D && D.byCode.get(state.anchor);
@@ -315,11 +406,22 @@
       if (a) { state.anchor = +a.dataset.anchor; saveState(); render(); return; }
       if (e.target.closest('[data-bench]')) openBench();
     });
-    combo($('#cmpAdd'), $('#cmpAddList'), {
-      find: q => searchFunds(D, q, { limit: 15, filter: f => f.m && !window.Picks.has(f.c) }),
-      html: f => `${esc(f.n)}<span class="tagp">${esc(f.p)}</span><span class="cl-meta">${esc(f.a)} · ${esc(shortCategory(f.k))}</span>`,
-      pick: f => { if (!window.Picks.toggle(f.c)) $('#cmpSub').textContent = `You can compare up to ${window.Picks.max} funds at a time. Remove one first.`; }
+    document.addEventListener('click', e => { if (e.target.closest('[data-cmp-pick]')) openPicker(); });
+    $('#cpSearch').addEventListener('input', drawPicker);
+    $('#cpSearch').addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+    $('#cpPlan').addEventListener('click', e => { const b = e.target.closest('[data-plan]'); if (!b) return; cpPlan = b.dataset.plan; drawPicker(); });
+    $('#cpList').addEventListener('change', e => { const x = e.target.closest('input[data-cp]'); if (x) toggleDraft(+x.dataset.cp, x.checked); });
+    $('#cpChosen').addEventListener('click', e => { const b = e.target.closest('[data-cp-rm]'); if (b) { toggleDraft(+b.dataset.cpRm, false); $('#cpSearch').focus(); } });
+    $('#cpApply').addEventListener('click', () => {
+      if (!draft.length) return;
+      window.Shell.closePanel(false);
+      const same = sameSet(draft, picks());
+      window.Picks.set(draft);
+      if (same) render();
+      $('#cmpHeading').focus();
     });
+    $('#cmpCloseBtn').addEventListener('click', closeComparison);
+    $('#cmpSwitch').addEventListener('change', e => { if (e.target.value) openSaved(e.target.value); });
     const isIndex = f => /index fund/i.test(f.k) || /\bindex\b|\betf\b/i.test(f.n);
     combo($('#benchAdd'), $('#benchAddList'), {
       find: q => searchFunds(D, q, { limit: 40, filter: f => f.m && !benchDraft.includes(f.c) }).sort((a, b) => (isIndex(b) - isIndex(a))).slice(0, 15),
@@ -362,6 +464,8 @@
     }
     render();
   }
+
+  document.addEventListener('mf:data', async () => { if (!D) return; try { D = await loadFunds(); } catch (e) { return; } if (shown) render(); });
 
   bind();
   document.addEventListener('mf:view', e => { if (e.detail.view === 'compare') show(); else shown = false; });

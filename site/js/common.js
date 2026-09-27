@@ -152,6 +152,30 @@ window.MF = (() => {
   }
 
   /** The typical fund of a category and plan ("<category>|<plan>"), as a NAV-like series from 100. */
+  /**
+   * Is there newer fund data than this page loaded (the nightly job, or Update
+   * now, rebuilt it)? If so, forget the cached files and tell the pages
+   * (mf:data), which revalue with the new NAVs. Resolves to true when it did.
+   */
+  let checking = null, lastCheck = 0;
+  function checkData() {
+    if (checking) return checking;
+    lastCheck = Date.now();
+    checking = (async () => {
+      if (!fundsPromise) return false;
+      const D = await fundsPromise.catch(() => null);
+      let m;
+      try { const r = await fetch('data/meta.json', { cache: 'no-store' }); if (!r.ok) return false; m = await r.json(); } catch (e) { return false; }
+      if (!D || !m || !m.built_at || m.built_at === (D.meta && D.meta.built_at)) return false;
+      jsonCache.clear(); histCache.clear(); fundsPromise = null;
+      emit('mf:data', { built: m.built_at, navDate: m.nav_date });
+      return true;
+    })().finally(() => { checking = null; });
+    return checking;
+  }
+  // Coming back to the app after a while: a night may have passed.
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - lastCheck > 10 * 60e3) checkData(); });
+
   async function loadCat(D, key) {
     const c = D && D.cats ? D.cats[key] : null;
     if (!c || !/^[a-z0-9-]+$/.test(c.f)) return null;
@@ -544,6 +568,6 @@ window.MF = (() => {
     store, cssVar, hexA, colors, currentTheme, getJSON, loadFunds, loadHistory, idxOnOrBefore, idxOnOrAfter,
     xirr, timeAxis, tooltip, reducedMotion, download, emit, shortCategory, groupLabel,
     icon, narrow, wide, seriesColor, pref, setPref, typeSwitch, picker, refreshPickers,
-    loadCat, decodeNav, loadLinks, amcSite, shortAmc, launchYear, searchFunds, combo, onStorage
+    loadCat, decodeNav, loadLinks, amcSite, shortAmc, launchYear, searchFunds, combo, onStorage, checkData
   };
 })();
