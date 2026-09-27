@@ -38,8 +38,8 @@ test("stores the day's NAVAll.txt, gzipped, by year and month", () => {
   assert.equal(r.stored, true);
   assert.equal(r.name, 'NAVAll-2026-09-26.txt.gz');
   assert.equal(r.snapshot, null);
-  assert.deepEqual(g.drive.paths(), ['Corpus planner archive/NAVAll/2026/09/NAVAll-2026-09-26.txt.gz']);
-  const f = g.drive.file('Corpus planner archive/NAVAll/2026/09/NAVAll-2026-09-26.txt.gz');
+  assert.deepEqual(g.drive.paths(), ['SIPs archive/NAVAll/2026/09/NAVAll-2026-09-26.txt.gz']);
+  const f = g.drive.file('SIPs archive/NAVAll/2026/09/NAVAll-2026-09-26.txt.gz');
   assert.equal(zlib.gunzipSync(f.getBlob().buf).toString(), NAVALL, 'unzips to the exact file');
   assert.equal(f.getMimeType(), 'application/gzip');
   assert.equal(JSON.parse(f.getDescription()).md5, md5(NAVALL));
@@ -55,9 +55,9 @@ test('the same file twice in a day is stored once; a changed one is kept as -2',
   r = g.call('putDaily', daily('2026-10-02'));
   assert.equal(r.name, 'NAVAll-2026-10-02.txt.gz');
   assert.deepEqual(g.drive.paths(), [
-    'Corpus planner archive/NAVAll/2026/09/NAVAll-2026-09-26-2.txt.gz',
-    'Corpus planner archive/NAVAll/2026/09/NAVAll-2026-09-26.txt.gz',
-    'Corpus planner archive/NAVAll/2026/10/NAVAll-2026-10-02.txt.gz'
+    'SIPs archive/NAVAll/2026/09/NAVAll-2026-09-26-2.txt.gz',
+    'SIPs archive/NAVAll/2026/09/NAVAll-2026-09-26.txt.gz',
+    'SIPs archive/NAVAll/2026/10/NAVAll-2026-10-02.txt.gz'
   ]);
 });
 
@@ -78,12 +78,12 @@ test('a history copy arrives in parts and appears only once complete', () => {
   assert.equal(r.ok, true, r.error);
   const paths = g.drive.paths().filter(p => p.includes('NAV history'));
   assert.deepEqual(paths, [
-    'Corpus planner archive/NAV history/NAV history 2026-10-01/manifest.json',
-    'Corpus planner archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part1of3.tar.gz',
-    'Corpus planner archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part2of3.tar.gz',
-    'Corpus planner archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part3of3.tar.gz'
+    'SIPs archive/NAV history/NAV history 2026-10-01/manifest.json',
+    'SIPs archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part1of3.tar.gz',
+    'SIPs archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part2of3.tar.gz',
+    'SIPs archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part3of3.tar.gz'
   ]);
-  const p2 = g.drive.file('Corpus planner archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part2of3.tar.gz');
+  const p2 = g.drive.file('SIPs archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part2of3.tar.gz');
   assert.equal(p2.getBlob().buf.toString(), 'part two');
   assert.deepEqual(g.call('putDaily', daily('2026-10-02')).snapshot, { id: '2026-10-01' });
 });
@@ -104,7 +104,7 @@ test('a retried part replaces the first try', () => {
   g.call('snapshotPut', part('2026-10-01', 1, 1, Buffer.from('first try')));
   g.call('snapshotPut', part('2026-10-01', 1, 1, Buffer.from('second try')));
   g.call('snapshotCommit', { id: '2026-10-01', parts: 1 });
-  const f = g.drive.file('Corpus planner archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part1of1.tar.gz');
+  const f = g.drive.file('SIPs archive/NAV history/NAV history 2026-10-01/nav-history-2026-10-01-part1of1.tar.gz');
   assert.equal(f.getBlob().buf.toString(), 'second try');
 });
 
@@ -132,7 +132,7 @@ test('finds its folder by id after a rename, and makes it again if it was delete
   assert.equal(root.folders[0].folders[0].folders[0].files.length, 2, 'still one folder, renamed');
   root.setTrashed(true);
   g.call('putDaily', daily('2026-09-28'));
-  assert.deepEqual(g.drive.paths(), ['Corpus planner archive/NAVAll/2026/09/NAVAll-2026-09-28.txt.gz']);
+  assert.deepEqual(g.drive.paths(), ['SIPs archive/NAVAll/2026/09/NAVAll-2026-09-28.txt.gz']);
 });
 
 test('an unknown action or bad JSON is reported, not thrown', () => {

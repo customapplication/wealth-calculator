@@ -69,7 +69,7 @@
     $$('.views a').forEach(a => {
       if (a.dataset.view === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
-    document.title = `${TITLES[view]}: Corpus planner`;
+    document.title = `${TITLES[view]} · SIPs`;
     document.documentElement.dataset.view = view;
     store.set('corpus-planner:view', view);
     emit('mf:view', { view });

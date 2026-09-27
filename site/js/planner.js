@@ -1,4 +1,4 @@
-/* Corpus planner: SIP, step-up SIP and SWP calculator (the Plan page). */
+/* The Plan page: SIP, step-up SIP and SWP calculator. */
 (() => {
 'use strict';
 

@@ -118,7 +118,7 @@
     r.gain = r.value - r.net;
     r.first = r.events.length ? r.events[0].t : null;
     r.xirr = xirr(r.events.map(e => ({ t: e.t, v: -e.inv })).concat(r.value > 0 ? [{ t: r.lastT, v: r.value }] : []));
-    if (h.kind === 'cas' && h.closeUnits != null) r.unitsMatch = Math.abs(r.units - h.closeUnits) < 0.002;
+    if (h.kind === 'cas' && h.closeUnits != null) r.unitsMatch = Math.abs((h.openUnits || 0) + r.units - h.closeUnits) < 0.002;
     if (hist.source === 'mfapi') r.warn.push(`NAVs came from MFapi.in because this site doesn't track scheme ${code} yet. Add ${code} to extra_schemes in pipeline/config.json to get checked AMFI NAVs.`);
     if (D && D.navDate && r.lastT < isoToMs(D.navDate) - 4 * DAY && r.units > 0) r.warn.push(`Latest NAV is from ${fmtDate(r.lastT)}, older than the rest of the site's data.`);
     return r;
@@ -435,20 +435,73 @@
     save(); refresh();
   }
 
+  /* A statement is merged, not swapped in: for each fund and folio it replaces the
+     transactions inside its own period and keeps older ones from an earlier
+     statement. So importing this year's statement after a full one loses nothing. */
+  const casKey = h => `${h.isin || h.name}|${h.folio || ''}`;
+  const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   function importCas(obj) {
-    if (!obj || obj.format !== CAS_FORMAT || !Array.isArray(obj.holdings)) throw new Error('This isn\'t a file from tools/cas_to_json.py. Convert your CAS PDF with that script first.');
-    const hs = obj.holdings.filter(h => Array.isArray(h.txns) && h.txns.length).map(h => ({
-      id: newId(), kind: 'cas', code: h.amfi || null, isin: h.isin || null, name: h.name, amc: h.amc, folio: h.folio,
-      closeUnits: typeof h.close_units === 'number' ? h.close_units : null,
-      txns: h.txns.map(x => ({ date: x.date, type: x.type, amount: x.amount, units: x.units, nav: x.nav }))
-    }));
-    const hadCas = P.holdings.some(h => h.kind === 'cas');
-    if (hadCas && !window.confirm('Replace the statement you imported earlier with this one? SIPs you added by hand stay.')) return null;
-    P.holdings = P.holdings.filter(h => h.kind !== 'cas').concat(hs);
-    P.casWarnings = obj.warnings || [];
-    P.casPeriod = obj.statement_period || null;
+    if (!obj || obj.format !== CAS_FORMAT || !Array.isArray(obj.holdings)) throw new Error("This statement couldn't be read.");
+    const per = obj.statement_period || {};
+    const from = per.from || '0000-01-01', to = per.to || '9999-12-31';
+    const old = P.casPeriod || {};
+    const mine = new Map(P.holdings.filter(h => h.kind === 'cas').map(h => [casKey(h), h]));
+    let added = 0, updated = 0, txns = 0;
+    const idle = [], opening = [];
+    for (const s of obj.holdings) {
+      const tx = (s.txns || []).map(x => ({ date: x.date, type: x.type, amount: x.amount, units: x.units, nav: x.nav }));
+      const h = mine.get(casKey(s));
+      if (h) {
+        h.txns = (h.txns || []).filter(x => x.date < from || x.date > to).concat(tx).sort(byDate);
+        const asOf = h.asOf || old.to || '';
+        if (to >= asOf) Object.assign(h, { closeUnits: s.close_units ?? null, asOf: to, name: s.name, amc: s.amc, isin: s.isin || h.isin });
+        const since = h.from || old.from || '9999';
+        if (from <= since) Object.assign(h, { from, openUnits: s.open_units || 0 });
+        updated++;
+      } else {
+        if (!tx.length) { if (s.close_units > 0) idle.push(s.name); continue; }
+        P.holdings.push({
+          id: newId(), kind: 'cas', code: null, isin: s.isin || null, name: s.name, amc: s.amc, folio: s.folio,
+          closeUnits: s.close_units ?? null, openUnits: s.open_units || 0, from, asOf: to, txns: tx
+        });
+        added++;
+      }
+      txns += tx.length;
+    }
+    for (const h of P.holdings) if (h.kind === 'cas' && h.openUnits > 0.0005) opening.push(h.name);
+    const warn = (obj.warnings || []).slice();
+    if (opening.length) warn.push(`${opening.length === 1 ? 'One fund' : opening.length + ' funds'} already held units when your earliest statement starts (${opening.slice(0, 3).join(', ')}${opening.length > 3 ? '…' : ''}). Their value, money in and gain leave those units out. Import a statement that starts before your first investment.`);
+    if (idle.length) warn.push(`${idle.length === 1 ? 'One fund' : idle.length + ' funds'} had no transactions in this statement's period, so ${idle.length === 1 ? "it wasn't" : "they weren't"} added (${idle.slice(0, 3).join(', ')}${idle.length > 3 ? '…' : ''}). A statement from before your first investment includes them.`);
+    if (old.from && (from > old.to || to < old.from)) warn.push(`This statement (${fmtDate(isoToMs(from))} to ${fmtDate(isoToMs(to))}) doesn't touch the earlier one (${fmtDate(isoToMs(old.from))} to ${fmtDate(isoToMs(old.to))}). Transactions between them are missing.`);
+    P.casWarnings = warn;
+    P.casPeriod = { from: old.from && old.from < from ? old.from : from, to: old.to && old.to > to ? old.to : to };
     save();
-    return { funds: hs.length, txns: hs.reduce((s, h) => s + h.txns.length, 0) };
+    return { added, updated, txns, idle: idle.length, check: obj.check || null };
+  }
+
+  async function importPdf() {
+    const file = $('#pfCasFile').files && $('#pfCasFile').files[0];
+    const out = $('#pfImportMsg'), go = $('#pfCasGo'), pw = $('#pfCasPw');
+    if (!file) { out.textContent = 'Choose your statement PDF first.'; return; }
+    if (!window.CasReader) { out.textContent = "The statement reader didn't load. Reload the page and try again."; return; }
+    go.disabled = true;
+    out.textContent = 'Opening the PDF…';
+    try {
+      const data = await file.arrayBuffer();
+      const obj = await window.CasReader.read(data, pw.value, (p, n) => { out.textContent = `Reading page ${p} of ${n}…`; });
+      const r = importCas(obj);
+      pw.value = '';
+      $('#pfCasFile').value = ''; $('#pfCasName').textContent = ''; $('#pfCasStep').hidden = true;
+      const c = r.check;
+      const checked = c ? ` Units add up for ${c.unitsOk} of ${c.schemes} funds on the statement.` : '';
+      out.textContent = `Imported ${r.txns} transactions: ${r.added} new ${r.added === 1 ? 'fund' : 'funds'}, ${r.updated} updated.${checked}`;
+      refresh();
+    } catch (e) {
+      out.textContent = e.message || String(e);
+      if (e.code === 'needs-password' || e.code === 'wrong-password') { pw.select(); pw.focus(); }
+    } finally {
+      go.disabled = false;
+    }
   }
 
   function readFile(input, fn) {
@@ -486,14 +539,15 @@
     }));
     $('#pfAdd').addEventListener('click', addFromForm);
 
-    $('#pfImport').addEventListener('change', e => readFile(e.target, (obj, err) => {
-      const out = $('#pfImportMsg');
-      if (err) { out.textContent = err.message; return; }
-      try {
-        const r = importCas(obj);
-        if (r) { out.textContent = `Imported ${r.funds} funds and ${r.txns} transactions.`; refresh(); }
-      } catch (ex) { out.textContent = ex.message; }
-    }));
+    $('#pfCasFile').addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0];
+      $('#pfCasName').textContent = f ? f.name : '';
+      $('#pfCasStep').hidden = !f;
+      $('#pfImportMsg').textContent = '';
+      if (f) $('#pfCasPw').focus();
+    });
+    $('#pfCasGo').addEventListener('click', importPdf);
+    $('#pfCasPw').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); importPdf(); } });
     $('#pfExport').addEventListener('click', () => {
       download(`portfolio-backup-${msToIso(todayMs())}.json`, JSON.stringify({ format: BACKUP_FORMAT, saved: new Date().toISOString(), ...P }, null, 1));
     });

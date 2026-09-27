@@ -1,6 +1,6 @@
 {
-  "name": "Corpus planner",
-  "short_name": "Corpus",
+  "name": "SIPs",
+  "short_name": "SIPs",
   "description": "Plan SIPs and SWPs, rank Indian mutual funds from AMFI NAVs, and track your own portfolio.",
   "start_url": "./#plan",
   "scope": "./",

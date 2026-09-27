@@ -1,10 +1,10 @@
 /**
- * Google Drive archive for Corpus planner, v1.
+ * Google Drive archive for SIPs, v1.
  *
  * Keeps a copy of AMFI's data in your own Google Drive. The nightly GitHub
  * job sends it here:
  *
- *   Corpus planner archive/
+ *   SIPs archive/
  *     NAVAll/2026/09/NAVAll-2026-09-26.txt.gz    each night's NAVAll.txt, exactly
  *                                                as AMFI served it, named by the
  *                                                day it was downloaded (IST)
@@ -23,7 +23,7 @@
  * its own older history copies.
  *
  * SETUP (README.md has the same steps in full):
- *   1. Go to script.google.com -> New project. Name it "Corpus planner archive".
+ *   1. Go to script.google.com -> New project. Name it "SIPs archive".
  *      Delete what's there, paste this file unchanged, and save.
  *   2. Project Settings (the gear) -> Script Properties -> Add script property.
  *      Property: SECRET. Value: a long random string, at least 16 characters,
@@ -42,7 +42,7 @@
 var APP = 'corpus-planner-archive';
 var VERSION = 1;
 var MIN_SECRET = 16;
-var ROOT_NAME = 'Corpus planner archive';
+var ROOT_NAME = 'SIPs archive';
 var DAILY_DIR = 'NAVAll';
 var HISTORY_DIR = 'NAV history';
 var SNAP_PREFIX = 'NAV history ';
@@ -59,7 +59,7 @@ function secret_() {
 }
 
 function doGet() {
-  return out_({ ok: true, app: APP, version: VERSION, msg: 'Corpus planner archive is running. The nightly job talks to it with POST requests.' });
+  return out_({ ok: true, app: APP, version: VERSION, msg: 'SIPs archive is running. The nightly job talks to it with POST requests.' });
 }
 
 function doPost(e) {

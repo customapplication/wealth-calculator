@@ -1,4 +1,4 @@
-/* Corpus planner styles. Tokens first; light and dark themes share every component. */
+/* SIPs styles. Tokens first; light and dark themes share every component. */
 :root{
   --paper:#F1F4F0; --sheet:#FFFFFF; --sheet-2:#F6F8F5; --field:#F3F6F2;
   --ink:#16233F; --ink-2:#45506A; --muted:#6F7990;

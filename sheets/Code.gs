@@ -1,7 +1,7 @@
 /** @OnlyCurrentDoc */
 
 /**
- * Google Sheet sync for Corpus planner, v1.
+ * Google Sheet sync for SIPs, v1.
  *
  * Keeps your plan and your portfolio in a Google Sheet that you own, and in
  * step across every browser you connect: a web app bound to the Sheet, a
@@ -80,10 +80,10 @@ function secret_() {
   return s.length >= MIN_SECRET ? s : '';
 }
 
-/** Adds a "Corpus planner" menu to the Sheet for the occasional manual job. */
+/** Adds a "SIPs" menu to the Sheet for the occasional manual job. */
 function onOpen() {
   try {
-    SpreadsheetApp.getUi().createMenu('Corpus planner')
+    SpreadsheetApp.getUi().createMenu('SIPs')
       .addItem('Refresh the readable tabs', 'REFRESH_TABS')
       .addItem('Check that this Sheet stores data exactly', 'TEST_STORAGE')
       .addSeparator()
@@ -93,7 +93,7 @@ function onOpen() {
 }
 
 function doGet() {
-  return out_({ ok: true, app: APP, version: VERSION, msg: 'Corpus planner sync is running. The site talks to it with POST requests.' });
+  return out_({ ok: true, app: APP, version: VERSION, msg: 'SIPs sync is running. The site talks to it with POST requests.' });
 }
 
 function doPost(e) {
@@ -350,7 +350,8 @@ var TXN_TYPES = {
   SWITCH_IN: 'Switch in', SWITCH_OUT: 'Switch out', SWITCH_IN_MERGER: 'Switch in (merger)',
   SWITCH_OUT_MERGER: 'Switch out (merger)', DIVIDEND_PAYOUT: 'IDCW paid out',
   DIVIDEND_REINVEST: 'IDCW reinvested', STAMP_DUTY_TAX: 'Stamp duty', STT_TAX: 'STT',
-  TDS_TAX: 'TDS', REVERSAL: 'Reversal', SEGREGATION: 'Segregation', MISC: 'Other'
+  TDS_TAX: 'TDS', REVERSAL: 'Reversal', SEGREGATION: 'Segregation', BONUS: 'Bonus units',
+  TRANSFER_IN: 'Transfer in', TRANSFER_OUT: 'Transfer out', MISC: 'Other'
 };
 
 // The planner's own wording for each input, in the order the page shows them.
@@ -586,7 +587,7 @@ function resetEverything_() {
 }
 
 /**
- * Run from the editor, or the Corpus planner menu, to check that this Sheet
+ * Run from the editor, or the SIPs menu, to check that this Sheet
  * keeps the site's data exactly: awkward values go through the same write and
  * read as real records, including a record long enough to need several cells.
  */

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Corpus planner</title>
+<title>SIPs</title>
 <meta name="description" content="Plan SIPs and SWPs, rank Indian mutual funds from AMFI NAVs, and track your own portfolio.">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
@@ -13,14 +13,14 @@
 <meta name="theme-color" content="#0E1526" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Corpus">
+<meta name="apple-mobile-web-app-title" content="SIPs">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script>try{var t=localStorage.getItem('corpus-planner:theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap">
 <link rel="stylesheet" href="css/app.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script src="vendor/chartjs/chart.umd.js"></script>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -49,7 +49,7 @@
   <header class="top">
     <a class="brand" href="#plan">
       <img class="brand-mark" src="icons/icon.svg" alt="" width="38" height="38">
-      <span class="brand-text"><h1>Corpus planner</h1><span class="brand-tag">Indian mutual funds, from AMFI's own NAVs</span></span>
+      <span class="brand-text"><h1>SIPs</h1><span class="brand-tag">Indian mutual funds, from AMFI's own NAVs</span></span>
     </a>
     <nav class="views" aria-label="Pages">
       <a href="#plan" data-view="plan"><svg class="ic" aria-hidden="true"><use href="#i-plan"/></svg><span>Plan</span></a>
@@ -346,16 +346,23 @@
           <button type="button" class="btn-main wide" id="pfAdd">Add to portfolio</button>
           <p class="hint" id="pfAddMsg" role="status"></p>
         </section>
-        <section>
+        <section id="pfCasBox">
           <h2>Import your statement</h2>
-          <p class="note">Your Consolidated Account Statement (CAS) from CAMS and KFintech lists every purchase you've made, with the exact units and NAV, across all fund houses.</p>
-          <ol class="steps-mini">
-            <li>Request a <b>Detailed</b> CAS from camsonline.com (or MF Central), from before your first investment to today, with a password you choose.</li>
-            <li>On your computer, run <code>python tools/cas_to_json.py cas.pdf</code>. It drops your name, PAN and contact details.</li>
-            <li>Choose the file it makes.</li>
-          </ol>
-          <div class="btn-row"><label class="btn-quiet">Choose portfolio file<input id="pfImport" type="file" accept=".json,application/json" hidden></label></div>
-          <p class="hint" id="pfImportMsg" role="status"></p>
+          <p class="note">Your Consolidated Account Statement (CAS) from CAMS and KFintech lists every purchase, with the exact units and NAV, across all fund houses. It's read here in your browser. The PDF and its password never leave this device.</p>
+          <details class="how">
+            <summary>How to get your statement</summary>
+            <ol class="steps-mini">
+              <li>Open the <a href="https://www.camsonline.com/Investors/Statements/Consolidated-Account-Statement" target="_blank" rel="noopener">CAMS statement page</a>. <a href="https://www.mfcentral.com/" target="_blank" rel="noopener">MF Central</a> and <a href="https://mfs.kfintech.com/" target="_blank" rel="noopener">KFintech</a> offer the same statement.</li>
+              <li>Choose <b>Detailed</b>, with transactions, for a period starting <b>before your first investment</b>, and set a password.</li>
+              <li>It arrives by email as a PDF in a few minutes. Choose it below.</li>
+            </ol>
+          </details>
+          <div class="btn-row"><label class="btn-quiet">Choose the PDF<input id="pfCasFile" type="file" accept="application/pdf,.pdf" hidden></label><span class="hint" id="pfCasName"></span></div>
+          <div id="pfCasStep" hidden>
+            <label class="field"><span class="lbl">PDF password <small>the one you set when you asked for it</small></span><span class="box"><input id="pfCasPw" type="password" autocomplete="off" spellcheck="false"></span></label>
+            <button type="button" class="btn-main wide" id="pfCasGo">Import statement</button>
+          </div>
+          <p class="hint" id="pfImportMsg" role="status" aria-live="polite"></p>
         </section>
         <section id="syncBox">
           <h2>Google Sheet</h2>
@@ -447,6 +454,7 @@
 <script src="js/common.js"></script>
 <script src="js/planner.js"></script>
 <script src="js/explore.js"></script>
+<script src="js/cas.js"></script>
 <script src="js/portfolio.js"></script>
 <script src="js/sync.js"></script>
 <script src="js/app.js"></script>
