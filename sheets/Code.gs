@@ -1,13 +1,21 @@
 /** @OnlyCurrentDoc */
 
 /**
- * Google Sheet sync for SIPs, v2.
+ * Google Sheet sync for SIPs, v3.
  *
  * Keeps your plan and your portfolio in a Google Sheet that you own, and in
  * step across every browser you connect: a web app bound to the Sheet, a
  * secret every request must carry, records merged by id with the newest edit
  * winning, and deletions kept as markers so a removed investment stays
  * removed on every device.
+ *
+ * v3 adds a login. Once you make one on the site, the secret no longer opens
+ * the data: each device signs in with your name and password, and carries a
+ * session of its own that you can sign out. Only hashes are stored here: the
+ * password itself never leaves your devices. Forgot it? Your 3 answers plus
+ * the one-time recovery code set a new one, and the SIPs menu can remove the
+ * login altogether. v3 can also start the site's nightly data update on
+ * GitHub, from a button on the site or on its own each day (see FUND DATA).
  *
  * SETUP (about five minutes, once; README.md has the same steps in full):
  *   1. Create a blank Google Sheet.
@@ -30,8 +38,20 @@
  *
  * AFTER CHANGING THIS FILE: Deploy -> Manage deployments -> Edit (pencil) ->
  * Version: New version -> Deploy. Saving alone doesn't change what /exec runs.
+ * If Google asks for new permissions (v3 asks to connect to an external
+ * service, for GitHub, and to run while you're away, for the daily check),
+ * choose checkNightly in the function list, press Run once, and allow them.
  * Changing the SECRET property needs no new deployment, but every device must
  * be connected again with the new value.
+ *
+ * FUND DATA (optional): the site's fund data is rebuilt every night by a
+ * GitHub Actions workflow, which GitHub pauses after 60 days without a
+ * commit. With these script properties, the site's "Update now" button, and
+ * SIPs -> Keep the nightly update running, start it from here instead:
+ *   GITHUB_TOKEN  a fine-grained personal access token for the one repository,
+ *                 with Actions: Read and write (nothing else)
+ *   GITHUB_REPO   owner/repository, e.g. customapplication/wealth-calculator.
+ *                 Optional: the site sends its own, which is kept.
  *
  * WHAT IS STORED
  *   _data (hidden tab), one row per record:
@@ -57,8 +77,17 @@
  */
 
 var APP = 'corpus-planner';
-var VERSION = 2;
+var VERSION = 3;
 var MIN_SECRET = 16;
+
+var MINUTE = 60000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
+var LOGIN_TRIES = 5;           // wrong passwords before logins pause (15 minutes, doubling up to a day)
+var RECOVER_TRIES = 3;         // wrong recovery answers before recovery pauses (1 hour, doubling up to a day)
+var MAX_DEVICES = 20;
+var IDLE_DAYS = 400;           // a device that hasn't synced for this long is signed out
+var PROOF_RE = /^[A-Za-z0-9_-]{43}$/;   // 32 bytes from the site's key derivation, base64url
+var WORKFLOW = 'nightly.yml';
+var REPO_RE = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 
 var DATA = '_data';
 var META_COLS = ['key', 'c', 'id', 'at', 'del', 'rev'];
@@ -89,6 +118,12 @@ function onOpen() {
       .addItem('Refresh the readable tabs', 'REFRESH_TABS')
       .addItem('Check that this Sheet stores data exactly', 'TEST_STORAGE')
       .addSeparator()
+      .addItem('Keep the nightly data update running', 'KEEP_NIGHTLY')
+      .addItem('Check the nightly data update now', 'CHECK_NIGHTLY_NOW')
+      .addItem('Stop the daily check', 'STOP_NIGHTLY_CHECK')
+      .addSeparator()
+      .addItem('Sign out every device', 'SIGN_OUT_EVERY_DEVICE')
+      .addItem('Remove the login', 'REMOVE_LOGIN')
       .addItem('Erase the synced data', 'RESET_EVERYTHING')
       .addToUi();
   } catch (e) { /* no UI when running headless */ }
@@ -98,31 +133,74 @@ function doGet() {
   return out_({ ok: true, app: APP, version: VERSION, msg: 'SIPs sync is running. The site talks to it with POST requests.' });
 }
 
+// Actions anyone with the URL may try. Each checks what it needs itself, and the
+// ones that test a password or answers count the wrong tries.
+var OPEN = { login: login_, questions: questions_, recover: recover_, register: register_ };
+// Actions for a signed-in device, or for the secret while there's no login.
+var SIGNED = {
+  ping: ping_, sync: sync_, devices: devices_, signOut: signOut_, logout: logout_,
+  changePassword: changePassword_, newRecovery: newRecovery_, dataStatus: dataStatus_, dataRefresh: dataRefresh_
+};
+
 function doPost(e) {
   try {
+    var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    if (!body || typeof body !== 'object') body = {};
+    var action = String(body.action || 'sync');
+    if (action === 'hello') return out_(hello_());
     var secret = secret_();
-    if (!secret) {
+    if (!secret && !account_()) {
       return out_({ ok: false, app: APP, setup: true,
                     error: 'The script has no SECRET yet. In Apps Script, open Project Settings -> Script properties and add ' +
                            'SECRET with a random value of at least ' + MIN_SECRET + ' characters.' });
     }
-    var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    if (typeof body.secret !== 'string' || body.secret !== secret) {
-      return out_({ ok: false, app: APP, badSecret: true, error: "The secret doesn't match the SECRET script property." });
-    }
     var lock = LockService.getScriptLock();
     lock.waitLock(30000);          // two devices may sync at the same moment
     try {
-      var action = body.action || 'sync';
-      if (action === 'ping') return out_(ping_());
-      if (action === 'sync') return out_(sync_(body));
-      return out_({ ok: false, app: APP, error: 'Unknown action: ' + action });
+      var acct = account_();
+      if (OPEN.hasOwnProperty(action)) return out_(OPEN[action](body, acct, secret));
+      var who = auth_(body, acct, secret);
+      if (who.refuse) return out_(who.refuse);
+      if (!SIGNED.hasOwnProperty(action)) return out_({ ok: false, app: APP, error: 'Unknown action: ' + action });
+      return out_(SIGNED[action](body, who, acct));
     } finally {
       lock.releaseLock();
     }
   } catch (err) {
     return out_({ ok: false, app: APP, error: String((err && err.message) || err) });
   }
+}
+
+/** For a device that has only the URL: which way in to offer. Says nothing private. */
+function hello_() {
+  var acct = account_();
+  return { ok: true, app: APP, version: VERSION, account: !!acct, setup: !secret_() && !acct };
+}
+
+/**
+ * Who is asking. With a login, a device must carry a session this script
+ * handed out; the secret alone no longer opens the data. Without one, the
+ * secret does, as before v3.
+ */
+function auth_(body, acct, secret) {
+  var tok = typeof body.session === 'string' ? body.session : '';
+  if (acct) {
+    if (!tok) return { refuse: { ok: false, app: APP, login: true, error: 'This Sheet has a login. Sign in on this device.' } };
+    var all = sessions_(), h = hash_(tok), rec = all[h], now = Date.now();
+    if (!rec || now - rec.s > IDLE_DAYS * DAY) {
+      if (rec) { delete all[h]; saveSessions_(all); }
+      return { refuse: { ok: false, app: APP, signedOut: true, error: 'This device was signed out. Sign in again.' } };
+    }
+    if (now - rec.s > 6 * HOUR) { rec.s = now; saveSessions_(all); }
+    return { session: h, user: acct.user };
+  }
+  if (tok && body.secret !== secret) {
+    return { refuse: { ok: false, app: APP, noAccount: true, error: 'The login on this Sheet was removed. Connect this device again with the secret.' } };
+  }
+  if (typeof body.secret !== 'string' || !secret || body.secret !== secret) {
+    return { refuse: { ok: false, app: APP, badSecret: true, error: "The secret doesn't match the SECRET script property." } };
+  }
+  return { session: null, user: null };
 }
 
 /** Run fn holding the script lock. Menu items use this; doPost already holds it. */
@@ -133,7 +211,368 @@ function withLock_(fn) {
 }
 
 function ping_() {
-  return { ok: true, app: APP, version: VERSION, epoch: epoch_(), sheetUrl: book_().getUrl(), now: Date.now() };
+  var acct = account_();
+  return { ok: true, app: APP, version: VERSION, epoch: epoch_(), sheetUrl: book_().getUrl(), now: Date.now(),
+           account: !!acct, user: acct ? acct.user : null };
+}
+
+/* ============================== the login ============================== */
+
+/*
+ * The site turns your name and password into two keys (PBKDF2, 600,000
+ * rounds, then HKDF). One unlocks your data on the device and never leaves it.
+ * The other, the "auth" proof, is sent here, and only its SHA-256 is stored,
+ * so these properties can't be used to sign in. The recovery proof is made the
+ * same way from your 3 answers plus the recovery code.
+ */
+function account_() {
+  var raw = props_().getProperty('account');
+  if (!raw) return null;
+  try { var a = JSON.parse(raw); return a && a.user && a.auth ? a : null; } catch (e) { return null; }
+}
+function saveAccount_(a) { props_().setProperty('account', JSON.stringify(a)); }
+
+/** Names are compared the way the site makes its keys: trimmed, lower case, single spaces. */
+function normUser_(u) {
+  var s = String(u == null ? '' : u).trim().toLowerCase().replace(/\s+/g, ' ');
+  return s.length >= 3 && s.length <= 40 ? s : '';
+}
+
+function hex_(bytes) {
+  return bytes.map(function (b) { return ((b + 256) % 256).toString(16); })
+    .map(function (x) { return x.length < 2 ? '0' + x : x; }).join('');
+}
+function hash_(s) { return hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(s), Utilities.Charset.UTF_8)); }
+
+/** Compares two hashes without stopping at the first difference. */
+function same_(a, b) {
+  a = String(a); b = String(b);
+  var d = a.length ^ b.length;
+  for (var i = 0; i < Math.min(a.length, b.length); i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+function proofOk_(p, stored) { return typeof p === 'string' && PROOF_RE.test(p) && same_(hash_(p), stored); }
+
+function questionsOf_(q) {
+  if (!Array.isArray(q) || q.length !== 3) return null;
+  var out = q.map(function (x) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, 150); });
+  if (out.some(function (x) { return x.length < 5; })) return null;
+  if (out[0] === out[1] || out[1] === out[2] || out[0] === out[2]) return null;
+  return out;
+}
+
+function sessions_() {
+  try { return JSON.parse(props_().getProperty('sessions') || '{}') || {}; } catch (e) { return {}; }
+}
+function saveSessions_(all) { props_().setProperty('sessions', JSON.stringify(all)); }
+
+/** A new session for this device: a random token it keeps, and its hash kept here. */
+function newSession_(device) {
+  var all = sessions_(), now = Date.now();
+  var tok = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  Object.keys(all).forEach(function (h) { if (now - all[h].s > IDLE_DAYS * DAY) delete all[h]; });
+  var keys = Object.keys(all).sort(function (a, b) { return all[a].s - all[b].s; });
+  while (keys.length >= MAX_DEVICES) delete all[keys.shift()];
+  all[hash_(tok)] = { n: String(device || 'A device').replace(/[\u0000-\u001f]/g, '').slice(0, 60), c: now, s: now };
+  saveSessions_(all);
+  return tok;
+}
+
+/* Wrong tries: after too many, that way in pauses, for longer each time. */
+function guard_() {
+  try { return JSON.parse(props_().getProperty('guard') || '{}') || {}; } catch (e) { return {}; }
+}
+function guardWait_(kind) {
+  var g = guard_()[kind];
+  return g && g.until > Date.now() ? Math.ceil((g.until - Date.now()) / 1000) : 0;
+}
+function guardFail_(kind, tries, baseMinutes) {
+  var all = guard_(), g = all[kind] || { n: 0, until: 0 };
+  g.n++;
+  if (g.n >= tries) g.until = Date.now() + Math.min(DAY, baseMinutes * MINUTE * Math.pow(2, g.n - tries));
+  all[kind] = g;
+  props_().setProperty('guard', JSON.stringify(all));
+  return { left: Math.max(0, tries - g.n), wait: g.until > Date.now() ? Math.ceil((g.until - Date.now()) / 1000) : 0 };
+}
+function guardClear_(kind) {
+  var all = guard_();
+  if (all[kind]) { delete all[kind]; props_().setProperty('guard', JSON.stringify(all)); }
+}
+function waitText_(sec) {
+  var m = Math.ceil(sec / 60);
+  return m >= 90 ? Math.round(m / 60) + ' hours' : m + (m === 1 ? ' minute' : ' minutes');
+}
+function signedIn_(acct, tok, extra) {
+  var out = { ok: true, app: APP, version: VERSION, session: tok, user: acct.user, epoch: epoch_(), sheetUrl: book_().getUrl(), now: Date.now() };
+  for (var k in extra || {}) out[k] = extra[k];
+  return out;
+}
+
+/** Make the login. Needs the secret, and only while there's no login yet. */
+function register_(body, acct, secret) {
+  if (acct) return { ok: false, app: APP, hasAccount: true, error: 'This Sheet already has a login. Sign in with it.' };
+  if (!secret || body.secret !== secret) return { ok: false, app: APP, badSecret: true, error: "The secret doesn't match the SECRET script property." };
+  var user = normUser_(body.user), q = questionsOf_(body.questions);
+  if (!user) return { ok: false, app: APP, error: 'Choose a name of 3 to 40 characters.' };
+  if (!q) return { ok: false, app: APP, error: 'Choose 3 different security questions.' };
+  if (!PROOF_RE.test(String(body.auth)) || !PROOF_RE.test(String(body.rec))) return { ok: false, app: APP, error: 'The login details were incomplete. Try again.' };
+  var now = Date.now();
+  acct = { user: user, auth: hash_(body.auth), rec: hash_(body.rec), q: q, created: now, changed: now };
+  saveAccount_(acct);
+  saveSessions_({});
+  props_().deleteProperty('guard');
+  return signedIn_(acct, newSession_(body.device));
+}
+
+function login_(body, acct) {
+  if (!acct) return { ok: false, app: APP, noAccount: true, error: 'This Sheet has no login yet.' };
+  var wait = guardWait_('login');
+  if (wait) return { ok: false, app: APP, wait: wait, error: 'Too many wrong passwords. Try again in ' + waitText_(wait) + '.' };
+  if (normUser_(body.user) !== acct.user || !proofOk_(body.auth, acct.auth)) {
+    var g = guardFail_('login', LOGIN_TRIES, 15);
+    return { ok: false, app: APP, badLogin: true, left: g.left, wait: g.wait,
+             error: g.wait ? 'Wrong name or password. Too many tries: try again in ' + waitText_(g.wait) + '.'
+                           : 'Wrong name or password.' + (g.left <= 2 ? ' ' + g.left + ' more ' + (g.left === 1 ? 'try' : 'tries') + ' before logins pause.' : '') };
+  }
+  guardClear_('login');
+  return signedIn_(acct, newSession_(body.device));
+}
+
+/** The 3 questions, so the site can ask them. The answers are never stored, only the recovery proof. */
+function questions_(body, acct) {
+  if (!acct) return { ok: false, app: APP, noAccount: true, error: 'This Sheet has no login yet.' };
+  if (normUser_(body.user) !== acct.user) return { ok: false, app: APP, error: "There's no login with that name on this Sheet." };
+  return { ok: true, app: APP, questions: acct.q };
+}
+
+/**
+ * Forgot the password: the 3 answers plus the recovery code make a proof that
+ * matches the stored one. It sets a new password and a new recovery code (the
+ * old code is used up), and signs out every other device.
+ */
+function recover_(body, acct) {
+  if (!acct) return { ok: false, app: APP, noAccount: true, error: 'This Sheet has no login yet.' };
+  var wait = guardWait_('recover');
+  if (wait) return { ok: false, app: APP, wait: wait, error: 'Too many wrong tries. Try again in ' + waitText_(wait) + '.' };
+  if (normUser_(body.user) !== acct.user || !proofOk_(body.rec, acct.rec)) {
+    var g = guardFail_('recover', RECOVER_TRIES, 60);
+    return { ok: false, app: APP, badRecovery: true, left: g.left, wait: g.wait,
+             error: "Those answers and recovery code don't match." + (g.wait ? ' Try again in ' + waitText_(g.wait) + '.' : '') };
+  }
+  if (!PROOF_RE.test(String(body.newAuth)) || !PROOF_RE.test(String(body.newRec))) return { ok: false, app: APP, error: 'The new login details were incomplete. Try again.' };
+  acct.auth = hash_(body.newAuth); acct.rec = hash_(body.newRec); acct.changed = Date.now();
+  saveAccount_(acct);
+  saveSessions_({});
+  guardClear_('recover'); guardClear_('login');
+  return signedIn_(acct, newSession_(body.device));
+}
+
+function devices_(body, who) {
+  var all = sessions_();
+  var list = Object.keys(all).map(function (h) {
+    return { id: h.slice(0, 12), name: all[h].n, created: all[h].c, seen: all[h].s, current: h === who.session };
+  }).sort(function (a, b) { return b.current - a.current || b.seen - a.seen; });
+  return { ok: true, app: APP, devices: list };
+}
+
+/** Sign out the other devices, or one of them by id. */
+function signOut_(body, who) {
+  if (!who.session) return { ok: false, app: APP, error: 'This Sheet has no login yet.' };
+  var all = sessions_(), n = 0;
+  Object.keys(all).forEach(function (h) {
+    if (h === who.session) return;
+    if (body.which === 'others' || (typeof body.which === 'string' && body.which.length >= 8 && h.indexOf(body.which) === 0)) { delete all[h]; n++; }
+  });
+  saveSessions_(all);
+  var out = devices_(body, who);
+  out.signedOut = n;
+  return out;
+}
+
+function logout_(body, who) {
+  if (who.session) { var all = sessions_(); delete all[who.session]; saveSessions_(all); }
+  return { ok: true, app: APP };
+}
+
+/** A new password, given the current one. Other devices stay signed in unless asked. */
+function changePassword_(body, who, acct) {
+  if (!acct || !who.session) return { ok: false, app: APP, error: 'This Sheet has no login yet.' };
+  var wait = guardWait_('login');
+  if (wait) return { ok: false, app: APP, wait: wait, error: 'Too many wrong passwords. Try again in ' + waitText_(wait) + '.' };
+  if (!proofOk_(body.auth, acct.auth)) {
+    var g = guardFail_('login', LOGIN_TRIES, 15);
+    return { ok: false, app: APP, badLogin: true, left: g.left, wait: g.wait, error: "That isn't your current password." };
+  }
+  if (!PROOF_RE.test(String(body.newAuth))) return { ok: false, app: APP, error: 'The new password details were incomplete. Try again.' };
+  guardClear_('login');
+  acct.auth = hash_(body.newAuth); acct.changed = Date.now();
+  saveAccount_(acct);
+  if (body.others) signOut_({ which: 'others' }, who);
+  return { ok: true, app: APP };
+}
+
+/** New security questions and a new recovery code, given the password. */
+function newRecovery_(body, who, acct) {
+  if (!acct || !who.session) return { ok: false, app: APP, error: 'This Sheet has no login yet.' };
+  var wait = guardWait_('login');
+  if (wait) return { ok: false, app: APP, wait: wait, error: 'Too many wrong passwords. Try again in ' + waitText_(wait) + '.' };
+  if (!proofOk_(body.auth, acct.auth)) {
+    var g = guardFail_('login', LOGIN_TRIES, 15);
+    return { ok: false, app: APP, badLogin: true, left: g.left, wait: g.wait, error: "That isn't your current password." };
+  }
+  var q = questionsOf_(body.questions);
+  if (!q) return { ok: false, app: APP, error: 'Choose 3 different security questions.' };
+  if (!PROOF_RE.test(String(body.rec))) return { ok: false, app: APP, error: 'The recovery details were incomplete. Try again.' };
+  guardClear_('login');
+  acct.q = q; acct.rec = hash_(body.rec); acct.changed = Date.now();
+  saveAccount_(acct);
+  return { ok: true, app: APP };
+}
+
+/* ============================== fund data (GitHub) ============================== */
+
+function ghToken_() { return String(props_().getProperty('GITHUB_TOKEN') || '').trim(); }
+
+/** The repository: GITHUB_REPO if set, else the one the site said it's served from (kept for the daily check). */
+function repo_(body) {
+  var p = props_(), set = String(p.getProperty('GITHUB_REPO') || '').trim();
+  if (REPO_RE.test(set)) return set;
+  var asked = String((body && body.repo) || ''), kept = String(p.getProperty('repo') || '');
+  if (REPO_RE.test(asked)) { if (asked !== kept) p.setProperty('repo', asked); return asked; }
+  return REPO_RE.test(kept) ? kept : '';
+}
+
+function github_(method, path, payload) {
+  var opt = {
+    method: method, muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + ghToken_(), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
+  };
+  if (payload) { opt.contentType = 'application/json'; opt.payload = JSON.stringify(payload); }
+  var r = UrlFetchApp.fetch('https://api.github.com' + path, opt);
+  var text = r.getContentText(), json = null;
+  try { json = text ? JSON.parse(text) : null; } catch (e) { /* not JSON */ }
+  return { code: r.getResponseCode(), json: json };
+}
+
+function ghError_(r, repo) {
+  if (r.code === 401) return 'GitHub refused the token. It may have expired: make a new one and paste it into the GITHUB_TOKEN script property.';
+  if (r.code === 403) return "The token isn't allowed to do this. It needs Actions: Read and write on " + repo + '.';
+  if (r.code === 404) return "GitHub couldn't find " + repo + ' or its ' + WORKFLOW + '. Check GITHUB_REPO, and that the token can see this repository.';
+  if (r.code === 422) return 'GitHub refused to start the workflow: ' + ((r.json && r.json.message) || 'check its branch') + '.';
+  return 'GitHub answered with an error (' + r.code + '). Try again later.';
+}
+
+function runOf_(x) {
+  return { status: x.status, conclusion: x.conclusion || null, event: x.event, created: Date.parse(x.created_at) || 0,
+           updated: Date.parse(x.updated_at) || 0, url: x.html_url };
+}
+
+/** The nightly workflow: on or paused, its latest run, and when it last succeeded. */
+function nightly_(body) {
+  if (!ghToken_()) return { configured: false };
+  var repo = repo_(body);
+  if (!repo) return { configured: true, error: 'Add GITHUB_REPO (owner/repository) to the script properties.' };
+  var base = '/repos/' + repo + '/actions/workflows/' + WORKFLOW;
+  var w = github_('get', base);
+  if (w.code !== 200) return { configured: true, repo: repo, error: ghError_(w, repo) };
+  var rs = github_('get', base + '/runs?per_page=10');
+  if (rs.code !== 200) return { configured: true, repo: repo, error: ghError_(rs, repo) };
+  var runs = ((rs.json && rs.json.workflow_runs) || []).map(runOf_), lastOk = null;
+  for (var i = 0; i < runs.length && !lastOk; i++) if (runs[i].conclusion === 'success') lastOk = runs[i].updated;
+  var watch = null;
+  try { watch = JSON.parse(props_().getProperty('watch') || 'null'); } catch (e) { /* none yet */ }
+  return { configured: true, repo: repo, state: w.json && w.json.state, run: runs[0] || null, lastOk: lastOk, watch: watch,
+           checking: dailyCheckOn_() };
+}
+
+/** Switch the workflow back on if GitHub paused it, then start a run unless one is going or just went. */
+function startNightly_(st, force) {
+  var base = '/repos/' + st.repo + '/actions/workflows/' + WORKFLOW, enabled = false;
+  if (st.state !== 'active' && (force || st.state === 'disabled_inactivity')) {
+    var e = github_('put', base + '/enable');
+    if (e.code !== 204) return { started: false, reason: 'error', error: ghError_(e, st.repo) };
+    enabled = true;
+  }
+  if (st.state === 'disabled_manually' && !force) return { started: false, reason: 'off' };
+  var run = st.run, now = Date.now();
+  if (run && run.status !== 'completed') return { started: false, enabled: enabled, reason: 'running' };
+  if (run && now - run.created < 10 * MINUTE) return { started: false, enabled: enabled, reason: 'recent' };
+  var d = github_('post', base + '/dispatches', { ref: String(props_().getProperty('GITHUB_BRANCH') || 'main') });
+  if (d.code !== 204) return { started: false, enabled: enabled, reason: 'error', error: ghError_(d, st.repo) };
+  return { started: true, enabled: enabled };
+}
+
+function dataStatus_(body) {
+  return { ok: true, app: APP, github: nightly_(body) };
+}
+
+/** The site's "Update now" button. */
+function dataRefresh_(body) {
+  var st = nightly_(body);
+  if (!st.configured) return { ok: false, app: APP, github: st, error: 'Add a GITHUB_TOKEN script property to update the fund data from here.' };
+  if (st.error) return { ok: false, app: APP, github: st, error: st.error };
+  var r = startNightly_(st, true);
+  if (r.error) return { ok: false, app: APP, github: st, error: r.error };
+  return { ok: true, app: APP, github: st, started: r.started, enabled: r.enabled, reason: r.reason || null };
+}
+
+/**
+ * The daily check (SIPs -> Keep the nightly data update running): switches the
+ * workflow back on if GitHub paused it for inactivity, and starts a run when
+ * the last good one is more than 26 hours old. A workflow you turned off by
+ * hand on GitHub is left off.
+ */
+function checkNightly() {
+  var st = nightly_({}), did;
+  if (!st.configured) did = 'Nothing to do: add a GITHUB_TOKEN script property first.';
+  else if (st.error) did = st.error;
+  else if (st.state === 'disabled_manually') did = 'The workflow was turned off on GitHub by hand, so it was left off.';
+  else {
+    var stale = !st.lastOk || Date.now() - st.lastOk > 26 * HOUR;
+    if (st.state !== 'active' || stale) {
+      var r = stale ? startNightly_(st, false) : { started: false, enabled: false };
+      if (!stale) {
+        var e = github_('put', '/repos/' + st.repo + '/actions/workflows/' + WORKFLOW + '/enable');
+        r.enabled = e.code === 204;
+        if (!r.enabled) r.error = ghError_(e, st.repo);
+      }
+      did = r.error || [r.enabled ? 'Switched the paused workflow back on.' : '',
+                        r.started ? 'Started a data update.' : stale ? (r.reason === 'running' ? 'An update was already running.' : 'An update started a few minutes ago.') : ''].join(' ').trim();
+    } else did = 'All well: the last update finished ' + stamp_(st.lastOk) + '.';
+  }
+  props_().setProperty('watch', JSON.stringify({ at: Date.now(), did: did }));
+  Logger.log('Nightly check: ' + did);
+  return did;
+}
+
+function dailyCheckOn_() {
+  try { return ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'checkNightly'; }); }
+  catch (e) { return null; }
+}
+
+function KEEP_NIGHTLY() {
+  if (!dailyCheckOn_()) ScriptApp.newTrigger('checkNightly').timeBased().everyDays(1).atHour(5).create();
+  tellOwner_('The nightly data update is checked every morning around 5 am. ' + checkNightly());
+}
+function CHECK_NIGHTLY_NOW() { tellOwner_(checkNightly()); }
+function STOP_NIGHTLY_CHECK() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'checkNightly') ScriptApp.deleteTrigger(t); });
+  tellOwner_('The daily check is off. The site\'s Update now button still works.');
+}
+
+/* The owner's way out, from the Sheet itself (Google has already checked it's you). */
+function SIGN_OUT_EVERY_DEVICE() {
+  withLock_(function () { saveSessions_({}); });
+  tellOwner_('Every device is signed out. Each one asks for the name and password at its next sync.');
+}
+function REMOVE_LOGIN() {
+  try {
+    var ui = SpreadsheetApp.getUi();
+    if (ui.alert('Remove the login?', 'Devices will need the SECRET again to connect, and you can make a new login on the site.', ui.ButtonSet.YES_NO) !== ui.Button.YES) return false;
+  } catch (e) { /* run from the editor: running it is the confirmation */ }
+  withLock_(function () { var p = props_(); p.deleteProperty('account'); p.deleteProperty('sessions'); p.deleteProperty('guard'); });
+  tellOwner_('The login is removed. Connect a device with the URL and the SECRET, then make a new login on the site.');
+  return true;
 }
 
 /* ============================== the sync ============================== */
@@ -438,7 +877,7 @@ function portfolioTab_(latest) {
 function investmentsTab_(list) {
   var headers = ['Fund', 'Kind', 'Scheme code', 'ISIN', 'Amount (₹)', 'Debit day', 'First SIP', 'Stopped',
                  'Raised every year (%)', 'Date invested', 'Folio', 'Transactions', 'Units in statement', 'Last changed',
-                 'Fund house', 'Goal'];
+                 'Fund house', 'Goal', 'Registrar', 'Distributor', 'Nominees', 'KYC and PAN'];
   var rows = list.map(function (x) {
     var h = x.h, sip = h.kind === 'sip', lump = h.kind === 'lump', cas = h.kind === 'cas';
     return [
@@ -446,12 +885,14 @@ function investmentsTab_(list) {
       sip || lump ? num_(h.amount) : '', sip ? num_(h.day) : '', sip ? month_(h.start) : '', sip ? month_(h.end) : '',
       sip ? num_(h.step) : '', lump ? day_(h.date) : '', cas ? text_(h.folio) : '',
       cas ? (h.txns || []).length : '', cas ? num_(h.closeUnits) : '', new Date(x.at),
-      text_(h.amc), text_(h.goal)
+      text_(h.amc), text_(h.goal), cas ? text_(h.rta) : '', cas ? text_(h.advisor) : '',
+      cas && Array.isArray(h.nominees) ? (h.nominees.length ? text_(h.nominees.join(', ')) : 'None on the statement') : '',
+      cas ? text_([h.kyc ? 'KYC ' + h.kyc : '', h.panOk === true ? 'PAN OK' : h.panOk === false ? 'PAN not OK' : ''].filter(String).join(', ')) : ''
     ];
   });
   if (!rows.length) rows.push(pad_(['No investments yet. Add them on the site, under Portfolio.'], headers.length));
   tab_('Investments', headers, rows, ['@', '@', '0', '@', '#,##0', '0', 'mmm yyyy', 'mmm yyyy', '0.##', 'd mmm yyyy',
-                                      '@', '0', '#,##0.000', 'd mmm yyyy h:mm', '@', '@']);
+                                      '@', '0', '#,##0.000', 'd mmm yyyy h:mm', '@', '@', '@', '@', '@', '@']);
 }
 
 function transactionsTab_(list) {

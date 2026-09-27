@@ -15,7 +15,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="SIPs">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<script>try{var t=localStorage.getItem('corpus-planner:theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+<script>try{var t=localStorage.getItem('corpus-planner:theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);if(localStorage.getItem('mf-lock:v1'))document.documentElement.classList.add('locked');}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Latin:wdth,wght@75..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
@@ -48,6 +48,11 @@
     <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m15.4 8.6-2 5-4.8 1.8 2-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-bars" viewBox="0 0 24 24"><path d="M3.5 20h17M6.5 16v-3.5M11.5 16V9M16.5 16V5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     <symbol id="i-upload" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v5h5M12 18v-6M9.5 14.5 12 12l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/><path d="M12 14.5v2.5"/></g></symbol>
+    <symbol id="i-finger" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 11v3a6 6 0 0 1-1.5 4"/><path d="M8.5 9.5A4 4 0 0 1 16 11v2"/><path d="M6 13a6 6 0 0 1 10-5.5"/><path d="M4.5 10A8 8 0 0 1 19 8"/><path d="M15.5 16.5A10 10 0 0 1 14 20"/></g></symbol>
+    <symbol id="i-erase" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7z"/><path d="M12 9l6 6M18 9l-6 6"/></g></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.4-3 8-7 9.5-4-1.5-7-5.1-7-9.5V6z"/><path d="M9 12l2 2 4-4"/></g></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.5-4.5L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.5 4.5L20 16"/><path d="M20 20v-4h-4"/></g></symbol>
     <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-sheet" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 9h16M4 15h16M10 9v12" stroke="currentColor" stroke-width="1.6"/></symbol>
     <symbol id="i-okcircle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8.2 12.4 2.5 2.5 5.1-5.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
@@ -73,6 +78,8 @@
         <span class="sc-top"><svg class="ic" aria-hidden="true"><use href="#i-sheet"/></svg><span id="syncCardTitle">Google Sheet</span></span>
         <span class="sc-sub" id="syncCardSub">Not connected. Keep your data on every device.</span>
       </button>
+      <button type="button" class="nav-btn" data-open-panel="panelSecurity"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg><span>Security</span></button>
+      <button type="button" class="nav-btn lock-now" hidden><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><span>Lock now</span></button>
       <button type="button" class="nav-btn theme-toggle" aria-label="Switch to the dark theme"><svg class="ic on-light" aria-hidden="true"><use href="#i-moon"/></svg><svg class="ic on-dark" aria-hidden="true"><use href="#i-sun"/></svg><span class="on-light">Dark theme</span><span class="on-dark">Light theme</span></button>
     </div>
   </aside>
@@ -86,9 +93,21 @@
       <h1 class="vtitle desk-only">Home</h1>
       <div class="vhead-actions">
         <a href="#portfolio" class="sync-chip" id="syncChip" hidden><svg class="ic" aria-hidden="true"><use href="#i-okcircle"/></svg><span id="syncChipText">Sheet synced</span></a>
-        <span class="phone-only"><button type="button" class="btn-icon theme-toggle" aria-label="Switch to the dark theme"><svg class="ic on-light" aria-hidden="true"><use href="#i-moon"/></svg><svg class="ic on-dark" aria-hidden="true"><use href="#i-sun"/></svg></button></span>
+        <span class="phone-only"><button type="button" class="btn-icon lock-now" aria-label="Lock now" hidden><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg></button><button type="button" class="btn-icon theme-toggle" aria-label="Switch to the dark theme"><svg class="ic on-light" aria-hidden="true"><use href="#i-moon"/></svg><svg class="ic on-dark" aria-hidden="true"><use href="#i-sun"/></svg></button></span>
       </div>
     </header>
+
+    <div class="stale" id="dataStale" role="status" hidden>
+      <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>
+      <p><b id="dataStaleTitle">Fund data is out of date</b><span id="dataStaleText"></span></p>
+      <button type="button" class="btn sm" data-open-panel="panelData">Update</button>
+    </div>
+
+    <div class="stale" id="acctNote" role="status" hidden>
+      <svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>
+      <p><b id="acctNoteTitle"></b><span id="acctNoteText"></span></p>
+      <button type="button" class="btn sm" data-open-panel="panelSheet">Sign in</button>
+    </div>
 
     <div id="homeEmpty" class="welcome" hidden>
       <h2>Your SIPs, all in one place</h2>
@@ -232,6 +251,7 @@
         <p class="muted" id="pfBackupNote">Your portfolio is saved only in this browser. Nothing is uploaded, and the site's public data never includes it.</p>
         <div class="btn-row">
           <button type="button" class="btn quiet sm" data-open-panel="panelSheet"><svg class="ic" aria-hidden="true"><use href="#i-sheet"/></svg>Google Sheet</button>
+          <button type="button" class="btn quiet sm" data-open-panel="panelSecurity"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>Security and devices</button>
           <button type="button" class="btn quiet sm" id="pfExport"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg>Download backup</button>
           <label class="btn quiet sm">Restore a backup<input id="pfRestore" type="file" accept=".json,application/json" hidden></label>
         </div>
@@ -624,13 +644,24 @@
             <li>Make a new Google Sheet. Open <b>Extensions</b>, then <b>Apps Script</b>, and paste in <code>sheets/Code.gs</code> from this site's GitHub repository.</li>
             <li>Press <b>Make a new secret</b> below. In Apps Script, open <b>Project Settings</b>, then <b>Script properties</b>, and add the property <code>SECRET</code> with that value.</li>
             <li>Choose <b>Deploy</b>, then <b>New deployment</b>, type <b>Web app</b>. Run it as <b>Me</b>, with access for <b>Anyone</b>, and allow the permissions it asks for.</li>
-            <li>Paste the web app URL (it ends in <code>/exec</code>) and the secret here, and connect. Do the same on your other devices.</li>
+            <li>Paste the web app URL (it ends in <code>/exec</code>) here and press Continue. Connect the first device with the secret, then make a login under <b>Security</b>: from then on, every device signs in with your name and password.</li>
           </ol>
         </details>
         <label class="field"><span class="lbl">Web app URL</span><span class="box"><input id="syncUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></span></label>
-        <label class="field"><span class="lbl">Secret <small>the SECRET script property</small></span><span class="box"><input id="syncSecret" type="password" autocomplete="off" spellcheck="false"></span></label>
-        <p class="hint sync-make"><button type="button" class="linkish" id="syncMake">Make a new secret</button></p>
-        <button type="button" class="btn wide" id="syncConnect">Connect</button>
+        <button type="button" class="btn wide" id="syncNext">Continue</button>
+        <div id="syncSecretBox" hidden>
+          <label class="field"><span class="lbl">Secret <small>the SECRET script property</small></span><span class="box"><input id="syncSecret" type="password" autocomplete="off" spellcheck="false"></span></label>
+          <p class="hint sync-make"><button type="button" class="linkish" id="syncMake">Make a new secret</button></p>
+          <button type="button" class="btn wide" id="syncConnect">Connect</button>
+        </div>
+        <form id="syncLoginBox" hidden>
+          <p class="hint">This Sheet has a login. Sign in with your name and password.</p>
+          <label class="field"><span class="lbl">Your name</span><span class="box"><input id="syncUser" autocomplete="username" spellcheck="false" autocapitalize="off"></span></label>
+          <label class="field"><span class="lbl">Password</span><span class="box"><input id="syncPass" type="password" autocomplete="current-password"></span></label>
+          <button type="submit" class="btn wide" id="syncSignIn">Sign in</button>
+          <p><button type="button" class="linkish" id="syncForgot">Forgot your password?</button></p>
+        </form>
+        <div id="syncRec" hidden></div>
       </div>
       <div id="syncOn" hidden>
         <p class="hint" id="syncState" role="status"></p>
@@ -638,10 +669,28 @@
           <button type="button" class="btn quiet sm" id="syncNow">Sync now</button>
           <a class="btn quiet sm" id="syncOpen" target="_blank" rel="noopener" hidden>Open the Sheet<svg class="ic" aria-hidden="true"><use href="#i-out"/></svg></a>
         </div>
+        <p class="hint" id="syncWho" hidden></p>
         <p><button type="button" class="linkish" id="syncOff">Disconnect this device</button></p>
       </div>
       <p class="hint" id="syncMsg" role="status"></p>
     </section>
+  </div>
+</div>
+
+<div class="panel" id="panelSecurity" role="dialog" aria-modal="true" aria-labelledby="panelSecurityTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelSecurityTitle">Security and devices</b></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body" id="secBody"></div>
+</div>
+
+<div class="panel" id="panelData" role="dialog" aria-modal="true" aria-labelledby="panelDataTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelDataTitle">Fund data</b></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body">
+    <p class="note">GitHub rebuilds the fund data from AMFI every night at 2 am. It pauses that job when the repository has had no commits for 60 days; <b>Update now</b> switches it back on and runs it, Drive archive included.</p>
+    <dl class="kv" id="dataFacts"></dl>
+    <button type="button" class="btn wide" id="dataGo"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg>Update now</button>
+    <p class="hint" id="dataMsg" role="status" aria-live="polite"></p>
+    <button type="button" class="btn quiet wide" id="dataReload" hidden>Reload to see the new data</button>
+    <div id="dataSetup"></div>
   </div>
 </div>
 
@@ -665,13 +714,9 @@
 </div>
 
 <div class="scrim" aria-hidden="true"></div>
+<div class="lock" id="lockScreen" role="main" aria-label="SIPs is locked" hidden></div>
 <script src="js/common.js"></script>
-<script src="js/planner.js"></script>
-<script src="js/explore.js"></script>
-<script src="js/compare.js"></script>
-<script src="js/cas.js"></script>
-<script src="js/portfolio.js"></script>
-<script src="js/sync.js"></script>
-<script src="js/app.js"></script>
+<!-- lock.js shows the lock screen if the lock is on, then loads planner, explore, compare, cas, portfolio, sync, security, update and app -->
+<script src="js/lock.js"></script>
 </body>
 </html>

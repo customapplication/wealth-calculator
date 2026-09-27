@@ -88,6 +88,18 @@
     return out.sort((a, b) => a.t - b.t);
   }
 
+  /* ELSS units are locked for 3 years from each purchase (reinvested dividends too).
+     A redemption can only take free units, so every purchase from the last 3 years is still held. */
+  const isElss = r => { const f = fundOf(r); return /\belss\b|tax ?saver/i.test((f && f.k) || '') || /\belss\b|tax ?saver/i.test(r.h.name || (f && f.n) || ''); };
+  function elssLock(r) {
+    if (!isElss(r) || !r.units) return null;
+    const now = todayMs(), until = t => { const d = new Date(t); d.setUTCFullYear(d.getUTCFullYear() + 3); return d.getTime(); };
+    const locked = r.events.filter(e => e.du > 0 && until(e.t) > now);
+    if (!locked.length) return { units: 0, value: 0, next: null };
+    const units = Math.min(r.units, locked.reduce((s, e) => s + e.du, 0));
+    return { units, value: units * r.lastNav, next: until(locked[0].t), free: Math.max(0, r.units - units) * r.lastNav };
+  }
+
   function resolveCode(h) {
     if (h.code) return h.code;
     if (D && h.isin && D.byIsin.has(h.isin)) return D.byIsin.get(h.isin).c;
@@ -103,7 +115,7 @@
     if (h.kind === 'sip') {
       bits.push(`SIP ${full(h.amount)} on day ${h.day} since ${fmtMonth(isoToMs(h.start + '-01'))}${h.end ? `, stopped ${fmtMonth(isoToMs(h.end + '-01'))}` : ''}${h.step > 0 ? `, +${h.step}% a year` : ''}`);
     } else if (h.kind === 'lump') bits.push(`one-time ${full(h.amount)} on ${fmtDate(h.date)}`);
-    else bits.push(h.folio ? `folio ${esc(h.folio)}` : 'from your statement');
+    else bits.push(h.folio ? `folio ••••${esc(folioEnd(h.folio))}` : 'from your statement');
     return bits.join(' · ');
   }
 
@@ -126,6 +138,7 @@
     r.gain = r.value - r.net;
     r.first = r.events.length ? r.events[0].t : null;
     r.xirr = xirr(r.events.map(e => ({ t: e.t, v: -e.inv })).concat(r.value > 0 ? [{ t: r.lastT, v: r.value }] : []));
+    r.lock = elssLock(r);
     if (h.kind === 'cas' && h.closeUnits != null) r.unitsMatch = Math.abs((h.openUnits || 0) + r.units - h.closeUnits) < 0.002;
     if (hist.source === 'mfapi') r.warn.push(`NAVs came from MFapi.in because this site doesn't track scheme ${code} yet. Add ${code} to extra_schemes in pipeline/config.json to get checked AMFI NAVs.`);
     if (D && D.navDate && r.lastT < isoToMs(D.navDate) - 4 * DAY && r.units > 0) r.warn.push(`Latest NAV is from ${fmtDate(r.lastT)}, older than the rest of the site's data.`);
@@ -366,6 +379,33 @@
     return `<a class="login" href="${esc(site.url)}" target="_blank" rel="noopener" aria-label="Log in at ${esc(site.name)}, on its website">Log in at ${esc(shortAmc(site.name))}${icon('out')}</a>`;
   }
 
+  let portals = [];                 // MF Central, CAMS, KFintech from data/links.json
+  const RTA_ID = { CAMS: 'cams', KFINTECH: 'kfintech' };
+  const RTA_NAME = { CAMS: 'CAMS', KFINTECH: 'KFintech' };
+
+  /* What the statement says about a fund beyond its money: folio, registrar, nominees, KYC, exit load. */
+  function casDetails(r) {
+    const h = r.h;
+    if (h.kind !== 'cas') return '';
+    const row = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`, rows = [];
+    if (h.folio) {
+      rows.push(row('Folio', `<span class="folio" data-full="${esc(h.folio)}" data-short="••••${esc(folioEnd(h.folio))}">••••${esc(folioEnd(h.folio))}</span>
+        <button type="button" class="linkish" data-folio aria-pressed="false">Show</button>`));
+    }
+    if (h.rta) {
+      const p = portals.find(x => x.id === RTA_ID[h.rta]);
+      rows.push(row('Registrar', `${esc(RTA_NAME[h.rta] || h.rta)}${p ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">Service and statements at ${esc(p.name)}${icon('out')}</a>` : ''}`));
+    }
+    if (h.advisor) rows.push(row('Distributor', h.advisor === 'DIRECT' ? 'None: bought direct' : `${esc(h.advisor)} <small class="muted">is paid a commission out of this plan's expenses</small>`));
+    if (Array.isArray(h.nominees)) rows.push(row('Nominees', h.nominees.length ? h.nominees.map(esc).join(', ') : '<span class="warn-text">None on the statement</span>'));
+    if (h.kyc || h.panOk != null) rows.push(row('KYC and PAN', [h.kyc ? `KYC ${esc(h.kyc === 'OK' ? 'OK' : h.kyc.toLowerCase())}` : '', h.panOk == null ? '' : h.panOk ? 'PAN OK' : '<span class="warn-text">PAN not OK</span>'].filter(Boolean).join(' · ')));
+    if (h.demat) rows.push(row('Held', 'In your demat account'));
+    if (h.stmt && h.stmt.value != null) rows.push(row('Statement', `Worth ${full(h.stmt.value)} on ${fmtDate(h.stmt.date)}${h.stmt.cost != null ? `, cost of the units held ${full(h.stmt.cost)}` : ''}`));
+    if (h.load) rows.push(row('Exit load', `<span class="load">${esc(h.load)}</span>`));
+    if (!rows.length) return '';
+    return `<details class="hold-more"><summary>Folio, nominees and exit load</summary><dl>${rows.join('')}</dl></details>`;
+  }
+
   function holdingHtml(r) {
     const h = r.h, name = esc(nameOf(r));
     const goal = (h.goal || '').trim();
@@ -375,18 +415,24 @@
     if (r.error) {
       return `<article class="hold"><div class="hold-top"><span class="hold-name">${name}</span></div>
         <div class="hold-meta"><span>${describe(r)}</span></div><p class="hold-err">${esc(r.error)}</p>
-        <div class="hold-tags">${login}${goalBtn}${actions}</div></article>`;
+        <div class="hold-tags">${login}${goalBtn}${actions}</div>${casDetails(r)}</article>`;
     }
     const check = r.unitsMatch == null ? '' : r.unitsMatch
       ? `<span class="tagchip ok">${icon('check')}Units match your statement</span>`
       : `<span class="tagchip warn">Statement says ${units(h.closeUnits)} units</span>`;
     const g = r.net > 0 ? r.gain / r.net : null;
+    const lock = r.lock && r.lock.units > 0.0005
+      ? `<span class="tagchip" title="ELSS units can be sold 3 years after each purchase">${icon('lock')}${cmp(r.lock.value)} locked, next free ${fmtDate(r.lock.next)}</span>`
+      : r.lock ? `<span class="tagchip ok">${icon('lock')}No units locked</span>` : '';
+    const kyc = r.h.kind === 'cas' && ((r.h.kyc && r.h.kyc !== 'OK') || r.h.panOk === false)
+      ? `<span class="tagchip warn">${r.h.panOk === false ? 'PAN not OK' : `KYC ${esc(r.h.kyc.toLowerCase())}`} on the statement</span>` : '';
     return `<article class="hold">
       <div class="hold-top"><span class="hold-name">${name}</span><span class="hold-worth">${full(r.value)}</span></div>
       <div class="hold-meta"><span>${describe(r)}</span><span class="pct ${signCls(r.gain)}">${g != null ? signed(g, x => pct(x, 1)) : ''}</span></div>
       <div class="hold-nums"><span>Put in <b>${full(r.net)}</b></span><span>Gain <b class="${signCls(r.gain)}">${signed(r.gain, full)}</b></span><span>XIRR <b>${r.xirr != null ? pct(r.xirr, 1) : '—'}</b></span><span>${units(r.units)} units · NAV of ${fmtDate(r.lastT)}</span></div>
       ${r.warn.length ? `<p class="muted small">${r.warn.map(esc).join(' ')}</p>` : ''}
-      <div class="hold-tags">${check}${login}${goalBtn}${actions}</div>
+      <div class="hold-tags">${check}${lock}${kyc}${login}${goalBtn}${actions}</div>
+      ${casDetails(r)}
     </article>`;
   }
 
@@ -420,6 +466,8 @@
     const notes = [];
     if (results.some(r => r.h.kind !== 'cas')) notes.push('SIPs and one-time amounts you enter are priced at the first NAV on or after the date, less 0.005% stamp duty from July 2020. Your real allotment can land a day or two later, so these are close estimates. Import your CAS for exact units.');
     (P.casWarnings || []).forEach(w => notes.push('Statement: ' + esc(w)));
+    const noNominee = new Set(results.filter(r => r.h.kind === 'cas' && Array.isArray(r.h.nominees) && !r.h.nominees.length && (r.units > 0 || r.error)).map(r => folioEnd(r.h.folio) + '|' + (r.h.amc || '')));
+    if (noNominee.size) notes.push(`${noNominee.size === 1 ? 'One folio shows' : noNominee.size + ' folios show'} no nominee on your statement. If you haven't opted out of nomination, add one at the fund house, its registrar or MF Central. Open <b>Folio, nominees and exit load</b> on a fund to see which.`);
     $('#pfNotes').innerHTML = notes.length ? `<ul class="notes-list">${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : '';
   }
 
@@ -595,7 +643,15 @@
   /* A statement is merged, not swapped in: for each fund and folio it replaces the
      transactions inside its own period and keeps older ones from an earlier
      statement. So importing this year's statement after a full one loses nothing. */
-  const casKey = h => `${h.isin || h.name}|${h.folio || ''}`;
+  // The last 4 characters of the folio: statements imported before the whole folio was kept stored only those.
+  const folioEnd = f => String(f || '').replace(/[^A-Za-z0-9]/g, '').slice(-4);
+  const casKey = h => `${h.isin || h.name}|${folioEnd(h.folio)}`;
+  /** What the newest statement says about a fund, beyond its transactions. */
+  const casFacts = s => ({
+    rta: s.rta || null, advisor: s.advisor || null, demat: s.demat ?? null, kyc: s.kyc || null, panOk: s.pan_ok ?? null,
+    nominees: Array.isArray(s.nominees) ? s.nominees.slice(0, 3) : null, load: s.load || null,
+    stmt: s.valuation ? { date: s.valuation.date || null, nav: s.valuation.nav ?? null, value: s.valuation.value ?? null, cost: s.cost ?? null } : null
+  });
   const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   function importCas(obj) {
     if (!obj || obj.format !== CAS_FORMAT || !Array.isArray(obj.holdings)) throw new Error("This statement couldn't be read.");
@@ -611,7 +667,8 @@
       if (h) {
         h.txns = (h.txns || []).filter(x => x.date < from || x.date > to).concat(tx).sort(byDate);
         const asOf = h.asOf || old.to || '';
-        if (to >= asOf) Object.assign(h, { closeUnits: s.close_units ?? null, asOf: to, name: s.name, amc: s.amc, isin: s.isin || h.isin });
+        if (to >= asOf) Object.assign(h, { closeUnits: s.close_units ?? null, asOf: to, name: s.name, amc: s.amc, isin: s.isin || h.isin }, casFacts(s));
+        if (s.folio && s.folio.length > String(h.folio || '').replace(/•/g, '').length) h.folio = s.folio;
         const since = h.from || old.from || '9999';
         if (from <= since) Object.assign(h, { from, openUnits: s.open_units || 0 });
         updated++;
@@ -619,7 +676,7 @@
         if (!tx.length) { if (s.close_units > 0) idle.push(s.name); continue; }
         P.holdings.push({
           id: newId(), kind: 'cas', code: null, isin: s.isin || null, name: s.name, amc: s.amc, folio: s.folio,
-          closeUnits: s.close_units ?? null, openUnits: s.open_units || 0, from, asOf: to, txns: tx
+          closeUnits: s.close_units ?? null, openUnits: s.open_units || 0, from, asOf: to, txns: tx, ...casFacts(s)
         });
         added++;
       }
@@ -762,6 +819,13 @@
         if (body) body.hidden = !now;
         return;
       }
+      const fb = e.target.closest('[data-folio]');
+      if (fb) {
+        const f = $('.folio', fb.parentElement), on = fb.getAttribute('aria-pressed') !== 'true';
+        f.textContent = on ? f.dataset.full : f.dataset.short;
+        fb.setAttribute('aria-pressed', String(on)); fb.textContent = on ? 'Hide' : 'Show';
+        return;
+      }
       const g = e.target.closest('[data-goal]');
       if (g) { editGoal(g.dataset.goal); return; }
       const b = e.target.closest('[data-remove]');
@@ -801,6 +865,7 @@
       try { D = await loadFunds(); } catch (e) { D = null; $('#pfFundHint').textContent = "The fund list isn't available yet (the nightly job hasn't built it). You can type an AMFI scheme code, or import your statement."; }
       const links = await loadLinks();
       if (links.portals && links.portals.length) {
+        portals = links.portals;
         const list = ['mfcentral', 'cams', 'kfintech'].map(id => links.portals.find(p => p.id === id)).filter(Boolean);
         if (list.length) $('#pfPortals').innerHTML = list.map(p => `<li><a href="${esc(p.url)}" target="_blank" rel="noopener"><span><b>${esc(p.name)}</b>${p.what ? `<small>${esc(p.what)}</small>` : ''}</span>${icon('out')}</a></li>`).join('');
       }

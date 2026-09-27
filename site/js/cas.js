@@ -2,8 +2,10 @@
 
    The file never leaves the device. pdf.js (self-hosted in vendor/pdfjs) pulls
    the text out here, lines() puts it back into rows, and parse() turns the rows
-   into the portfolio's import format. Only fund-level facts are kept: the
-   scheme, its ISIN, the fund house, the last 4 characters of the folio, and
+   into the portfolio's import format. Kept for each fund: the scheme, its
+   ISIN, the fund house, the folio number, the registrar, the distributor
+   (ARN) or DIRECT, the nominees' names, whether KYC and PAN are marked OK,
+   demat or not, the statement's cost and value, its exit load wording, and
    every transaction. The investor's name, PAN, email, phone and address are
    never read into the result.
 
@@ -150,10 +152,23 @@
     return 'REDEMPTION';
   }
 
-  function maskFolio(f) {
-    const s = String(f || '').replace(/[^A-Za-z0-9]/g, '');
-    return s ? '••••' + s.slice(-4) : '';
+  /* "12345678 / 90" -> "12345678/90". The folio is kept whole: it's what a fund
+     house or registrar asks for. The page shows only its end unless asked. */
+  function cleanFolio(f) {
+    return String(f || '').replace(/\s*\/\s*/g, '/').replace(/[^A-Za-z0-9/]/g, '').slice(0, 30);
   }
+  /* "Folio No: 12345678 / 90 PAN: ABCDE1234F KYC: OK PAN: OK": the statuses only, never the PAN. */
+  function folioStatus(t) {
+    const kyc = /KYC\s*:\s*([A-Za-z][A-Za-z ]{0,15}?)\s*(?=PAN\s*:|$)/i.exec(t);
+    const pan = /PAN\s*:\s*([A-Za-z][A-Za-z ]{0,15}?)\s*$/i.exec(t);
+    return { kyc: kyc ? kyc[1].trim().toUpperCase() : null, pan: pan ? pan[1].trim().toUpperCase() : null };
+  }
+  /* "Nominee 1: A PERSON Nominee 2: Nominee 3:" -> ["A PERSON"] */
+  function nomineesOf(t) {
+    return t.split(/Nominee\s*\d\s*:?/i).map(x => x.replace(/\s+/g, ' ').trim()).filter(x => x && x.length <= 80);
+  }
+  const LOAD_START = /\b(entry|exit)\s*load\b|load\s*structure|lock-?\s*in/i;
+  const HEADING_ROW = /^[A-Z0-9]{1,14}\s*-\s*\S|ISIN\s*:|Registrar\s*:|^(KFINTECH|KARVY|CAMS)$|^Folio No|^Nominee\s*\d|Opening Unit Balance|Mutual Fund$|^PORTFOLIO/i;
 
   /* The scheme's heading, which can wrap over two or three rows:
      "A12-Alpha ELSS Tax Saver Fund-Regular Plan-Growth (Non-Demat) - ISIN: INF999A01234(Advisor: ARN-00001)" */
@@ -162,6 +177,7 @@
     const rta = /Registrar\s*:?\s*(CAMS|KFINTECH|KARVY)/i.exec(text) || /\b(KFINTECH|KARVY|CAMS)\b/.exec(text);
     text = text.replace(/Registrar\s*:?\s*(CAMS|KFINTECH|KARVY)?/ig, ' ').replace(/(^|\s)(KFINTECH|KARVY)(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
     const at = text.search(/ISIN\s*:/i);
+    const dm = /\(\s*(Non\s*-?\s*)?Demat\s*\)/i.exec(text);
     let isin = null, name = text, advisor = null;
     if (at >= 0) {
       const tail = text.slice(at).replace(/^ISIN\s*:\s*/i, '');
@@ -182,7 +198,8 @@
       .replace(/\s*-\s*/g, m => (m.trim() === '-' ? ' - ' : m))
       .replace(/ - (?=[a-z])/g, '-')
       .trim();
-    return { name, isin, advisor, rta: rta ? rta[1].toUpperCase().replace('KARVY', 'KFINTECH') : null };
+    if (advisor) advisor = advisor.toUpperCase().replace(/^ARN(\d)/, 'ARN-$1');
+    return { name, isin, advisor, demat: dm ? !dm[1] : null, rta: rta ? rta[1].toUpperCase().replace('KARVY', 'KFINTECH') : null };
   }
 
   /* Rows of every page -> the import format. `pages` is an array of pdf.js
@@ -209,7 +226,8 @@
     }
 
     const holdings = [], warnings = [];
-    let cols = null, amc = null, folio = null, pending = [], cur = null, lastTxn = null, headDone = false, summary = null, closed = null;
+    let cols = null, amc = null, folio = null, status = null, pending = [], cur = null, lastTxn = null, headDone = false, summary = null, closed = null;
+    let loadRows = 0;                                      // rows of exit load wording read after a scheme closes
 
     const finishHeading = () => {
       // the heading is the block from the scheme-code line (or the ISIN line) to here
@@ -222,7 +240,9 @@
       }
       const h = schemeHeading(pending.slice(start, end + 1));
       cur = {
-        amfi: null, isin: h.isin, name: h.name, amc, folio: maskFolio(folio), rta: h.rta,
+        amfi: null, isin: h.isin, name: h.name, amc, folio: cleanFolio(folio), rta: h.rta,
+        advisor: h.advisor, demat: h.demat, kyc: status ? status.kyc : null, pan_ok: status && status.pan ? status.pan === 'OK' : null,
+        nominees: null, load: null,
         open_units: null, close_units: null, cost: null,
         valuation: { date: null, nav: null, value: null }, txns: [], _bal: []
       };
@@ -245,13 +265,29 @@
         amc = t; folio = null; cur = null; pending = []; headDone = false; continue;
       }
       const f = /^Folio No\s*:?\s*(.*?)(?:\s+PAN\s*:.*)?$/i.exec(t);
-      if (f) { folio = f[1].trim(); cur = null; pending = []; headDone = false; continue; }
+      if (f) { folio = f[1].trim(); status = folioStatus(t); cur = null; pending = []; headDone = false; loadRows = 0; continue; }
+
+      // The exit load, in the statement's words, printed after a scheme's closing balance.
+      if (closed && !cur && loadRows >= 0 && !/Market Value on/i.test(t)) {
+        // The KYC reminder that follows ("Please ensure that your account…") can break over rows anywhere.
+        const reminder = /["“]?\s*Please(\s+ensure\b|\s*$)/i;
+        if (loadRows > 0 && /^ensure that your account/i.test(t)) loadRows = -1;
+        else if (loadRows === 0 ? LOAD_START.test(t) : !HEADING_ROW.test(t) && !DATE_AT_START.test(t) && loadRows < 9) {
+          const cut = t.split(reminder)[0].replace(/"{2,}/g, '"').trim();
+          if (cut) {
+            const all = (closed.load ? closed.load.replace(/…$/, '') + ' ' : '') + cut;
+            closed.load = all.length > 800 ? all.slice(0, 799).trimEnd() + '…' : all;
+          }
+          loadRows = reminder.test(t) ? -1 : loadRows + 1;
+          if (loadRows > 0 || cut) continue;
+        } else loadRows = -1;
+      }
 
       if (!cur || headDone === false) {
         if (!folio) continue;                                  // page 1's name and address, legal notes
         const late = /Market Value on (\d{1,2}-[A-Za-z]{3}-\d{4})\s*:\s*INR\s*([\d,.()-]+)/i.exec(t);
         if (late && closed && closed.valuation.value == null) { closed.valuation.value = num(late[2]); continue; }
-        if (/^Nominee\s*1/i.test(t)) { if (pending.length) finishHeading(); continue; }
+        if (/^Nominee\s*1/i.test(t)) { if (pending.length) finishHeading(); if (cur) cur.nominees = nomineesOf(t); continue; }
         const ob = /Opening Unit Balance\s*:?\s*([\d,.()-]+)/i.exec(t);
         if (ob) {
           if (!cur || !headDone) finishHeading();
@@ -263,7 +299,7 @@
       }
 
       // inside a scheme: after its heading, until "Closing Unit Balance"
-      if (/^Nominee\s*\d/i.test(t)) continue;
+      if (/^Nominee\s*\d/i.test(t)) { if (/^Nominee\s*1/i.test(t)) cur.nominees = nomineesOf(t); continue; }
       const ob = /Opening Unit Balance\s*:?\s*([\d,.()-]+)/i.exec(t);
       if (ob) { if (cur.open_units == null) cur.open_units = num(ob[1]); continue; }
       const mv = /Market Value on (\d{1,2}-[A-Za-z]{3}-\d{4})\s*:\s*INR\s*([\d,.()-]+)/i.exec(t);
@@ -277,7 +313,7 @@
         if (cv) cur.cost = num(cv[1]);
         headDone = false; pending = []; lastTxn = null;
         // stay on this folio: CAS can list several schemes under one folio heading
-        closed = cur; cur = null;
+        closed = cur; cur = null; loadRows = 0;
         continue;
       }
       if (mv) continue;

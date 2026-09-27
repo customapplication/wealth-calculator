@@ -253,7 +253,8 @@
         <li>Whenever two sources disagree, AMFI's value is kept.</li>
         ${h.errors && h.errors.length ? `<li class="warn">AMFI history errors: ${esc(h.errors.join(' | '))}</li>` : ''}
       </ul>${corr ? `<p>Latest corrections:</p><ul>${corr}</ul>` : ''}</details>` +
-      (warn.length ? `<p class="warn">${warn.join(' ')}</p>` : '');
+      (warn.length ? `<p class="warn">${warn.join(' ')}</p>` : '') +
+      '<p class="fresh-act"><button type="button" class="linkish" data-open-panel="panelData">Update the fund data</button></p>';
   }
 
   /* ---------- the ranking ---------- */

@@ -1,7 +1,8 @@
 /* Google Sheet sync: keeps the plan and the portfolio in a Google Sheet the
    owner owns, and in step on every device they connect, through their own
-   Apps Script web app (sheets/Code.gs). The URL and secret stay in this
-   browser; nothing about the connection is in the site or the repository. */
+   Apps Script web app (sheets/Code.gs). The URL and the secret, or once there's
+   a login, this device's session, stay in this browser; nothing about the
+   connection is in the site or the repository. */
 window.Sync = (() => {
   'use strict';
   const { $, esc, store, emit, fmtDate } = MF;
@@ -15,12 +16,15 @@ window.Sync = (() => {
   let S = load();
   let busy = false, again = false, timer = null, applying = false;
 
+  // hold: 'login' when the Sheet wants this device to sign in, 'secret' when its login was removed.
   function fresh(over) {
-    return Object.assign({ url: '', secret: '', epoch: null, cursor: 0, skew: 0, docs: {}, snap: null, sheetUrl: '', lastOk: 0, lastError: '' }, over);
+    return Object.assign({ url: '', secret: '', session: '', user: '', version: 0, account: false, hold: '', out: false,
+      epoch: null, cursor: 0, skew: 0, docs: {}, snap: null, sheetUrl: '', lastOk: 0, lastError: '' }, over);
   }
   function load() { const s = store.json(KEY, null); return fresh(s && typeof s === 'object' ? s : {}); }
   const persist = () => store.set(KEY, JSON.stringify(S));
-  const connected = () => !!(S.url && S.secret);
+  const connected = () => !!(S.url && (S.secret || S.session) && !S.hold);
+  const cred = () => S.session ? { session: S.session } : { secret: S.secret };
 
   /* ---------- what gets synced ---------- */
 
@@ -91,14 +95,15 @@ window.Sync = (() => {
 
   /* ---------- talking to the Apps Script ---------- */
 
-  async function post(url, secret, body) {
+  /** auth is { secret } or { session }, or {} for the actions that need neither. */
+  async function post(url, auth, body) {
     let r;
     try {
       r = await fetch(url, {
         method: 'POST', redirect: 'follow',
         // text/plain keeps this a "simple" request, which Apps Script can answer
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(Object.assign({ secret }, body))
+        body: JSON.stringify(Object.assign({}, auth, body))
       });
     } catch (e) {
       throw new Error("Couldn't reach your Apps Script. Check that you're online, and that the deployment's Who has access is set to Anyone.");
@@ -113,8 +118,34 @@ window.Sync = (() => {
     if (!j || j.app !== 'corpus-planner') {
       throw new Error("That URL belongs to a different Apps Script, perhaps one of your other apps. Deploy sheets/Code.gs from this project in its own Sheet, and use that URL.");
     }
-    if (!j.ok) throw new Error(j.error || 'The Apps Script turned the request down.');
+    if (!j.ok) throw Object.assign(new Error(j.error || 'The Apps Script turned the request down.'), { info: j });
     return j;
+  }
+
+  /** The Sheet turned this device away: sign in again, or connect with the secret again. */
+  function refused(info) {
+    if (info.login) { S.hold = 'login'; S.lastError = info.error; }
+    else if (info.noAccount) { S.hold = 'secret'; S.session = ''; S.lastError = info.error; }
+    else if (info.signedOut) { signedOut(); return true; }
+    else return false;
+    persist(); render();
+    emit('mf:account', { hold: S.hold });
+    return true;
+  }
+
+  /**
+   * Another device, or the Sheet's owner, signed this one out: what came from
+   * the Sheet goes from here too. The records are forgotten first, so nothing
+   * here is read as a deletion and sent back.
+   */
+  function signedOut() {
+    clearTimeout(timer);
+    S = fresh({ url: S.url, user: S.user, version: S.version, account: true, hold: 'login', out: true,
+                lastError: 'This device was signed out, so its copy of your data was removed. Sign in to get it back.' });
+    persist();
+    ['mf-portfolio:v1', 'corpus-planner:v1', 'mf-bench:v1'].forEach(k => store.del(k));
+    const go = () => location.reload();
+    if (window.Lock && window.Lock.flush) window.Lock.flush().then(go, go); else go();
   }
 
   /* ---------- one sync ---------- */
@@ -181,7 +212,7 @@ window.Sync = (() => {
       }
       if (S.snap && S.snap.dirty) { changes.push({ c: 'snapshot', id: 'latest', at: S.snap.at, del: 0, data: S.snap.data }); sent.snap = S.snap.at; }
 
-      const res = await post(S.url, S.secret, { action: 'sync', epoch: S.epoch, since: S.cursor, changes });
+      const res = await post(S.url, cred(), { action: 'sync', epoch: S.epoch, since: S.cursor, changes });
       if (typeof res.now === 'number') S.skew = res.now - Date.now();
       for (const k of Object.keys(sent)) {
         if (k === 'snap') { if (S.snap && S.snap.at === sent.snap) S.snap.dirty = 0; }
@@ -195,12 +226,13 @@ window.Sync = (() => {
         for (const k of Object.keys(S.docs)) if (!(k in sent) && !S.docs[k].dirty) { S.docs[k].dirty = 1; again = true; }
         if (S.snap && !('snap' in sent)) { S.snap.dirty = 1; again = true; }
       }
-      Object.assign(S, { epoch: res.epoch, cursor: res.cursor, sheetUrl: res.sheetUrl || S.sheetUrl, lastOk: Date.now(), lastError: '' });
+      Object.assign(S, { epoch: res.epoch, cursor: res.cursor, sheetUrl: res.sheetUrl || S.sheetUrl, lastOk: Date.now(), lastError: '', version: res.version || S.version });
       if (res.refused && res.refused.length) S.lastError = `${res.refused.length} record${res.refused.length === 1 ? " wasn't" : "s weren't"} stored: ${res.refused[0].error}.`;
       persist();
       if (report.added || report.removed || report.plan) emit('mf:synced', report);
       return report;
     } catch (e) {
+      if (e.info && refused(e.info)) throw e;
       S.lastError = e.message || String(e);
       persist();
       throw e;
@@ -227,7 +259,7 @@ window.Sync = (() => {
     });
     persist();
     if (!changes.length) return;
-    const body = JSON.stringify({ secret: S.secret, action: 'sync', epoch: S.epoch, since: S.cursor, changes });
+    const body = JSON.stringify(Object.assign(cred(), { action: 'sync', epoch: S.epoch, since: S.cursor, changes }));
     try { navigator.sendBeacon(S.url, new Blob([body], { type: 'text/plain;charset=utf-8' })); } catch (e) { /* next visit sends it */ }
   }
 
@@ -239,27 +271,87 @@ window.Sync = (() => {
     return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
-  async function connect(url, secret) {
-    url = String(url || '').trim(); secret = String(secret || '').trim();
+  const checkUrl = url => {
+    url = String(url || '').trim();
     if (!URL_RE.test(url)) throw new Error('Paste the web app URL from Apps Script (Deploy, then Manage deployments). It starts with https://script.google.com/ and ends in /exec.');
-    if (secret.length < MIN_SECRET) throw new Error(`The secret is the SECRET script property, at least ${MIN_SECRET} characters long.`);
-    const ping = await post(url, secret, { action: 'ping' });
-    S = fresh({ url, secret, sheetUrl: ping.sheetUrl || '', skew: typeof ping.now === 'number' ? ping.now - Date.now() : 0 });
+    return url;
+  };
+
+  /** What the Sheet's script offers: { version, account }. A version 2 script doesn't answer hello. */
+  async function hello(url) {
+    url = checkUrl(url);
+    try { const r = await post(url, {}, { action: 'hello' }); return { version: r.version || 3, account: !!r.account, setup: !!r.setup }; }
+    catch (e) {
+      if (e.info && (e.info.badSecret || e.info.setup)) return { version: e.info.setup ? 3 : 2, account: false, setup: !!e.info.setup };
+      throw e;
+    }
+  }
+
+  /** Start syncing: this device's data is stamped as old, so what's already in the Sheet wins. */
+  async function begin(fields, first) {
+    S = fresh(Object.assign({ sheetUrl: first.sheetUrl || '', version: first.version || 0, account: !!first.account, user: first.user || '',
+      skew: typeof first.now === 'number' ? first.now - Date.now() : 0 }, fields));
     scan(undefined, true);
     const snap = window.Portfolio && window.Portfolio.snapshot && window.Portfolio.snapshot();
     if (snap) S.snap = { h: hashOf(snap), at: stamp(), dirty: 1, data: snap };
     persist();
+    if (window.Lock) window.Lock.noteSheet(S.url);
     const report = await run();
     const n = window.Portfolio ? window.Portfolio.syncGet().holdings.length : 0;
-    return `Connected. This device and your Sheet now hold the same ${n} investment${n === 1 ? '' : 's'}` +
+    return `This device and your Sheet now hold the same ${n} investment${n === 1 ? '' : 's'}` +
       (report && report.plan ? ", and the plan already in your Sheet replaced this device's plan." : ' and the same plan.');
   }
 
+  async function connect(url, secret) {
+    url = checkUrl(url); secret = String(secret || '').trim();
+    if (secret.length < MIN_SECRET) throw new Error(`The secret is the SECRET script property, at least ${MIN_SECRET} characters long.`);
+    const ping = await post(url, { secret }, { action: 'ping' });
+    return 'Connected. ' + await begin({ url, secret }, ping);
+  }
+
+  /**
+   * Sign in with a name and password. keys come from Lock.passwordKeys. A
+   * device already syncing carries on with its session; a new one starts as
+   * connect() does.
+   */
+  async function signIn(url, keys) {
+    url = checkUrl(url);
+    const r = await post(url, {}, { action: 'login', user: keys.user, auth: keys.auth, device: window.Lock.deviceName() });
+    if (S.url === url && S.epoch && !S.out) {
+      Object.assign(S, { session: r.session, secret: '', user: r.user, account: true, hold: '', lastError: '', version: r.version || S.version });
+      persist(); render();
+      if (window.Lock) window.Lock.noteSheet(url);
+      await run();
+      return 'Signed in.';
+    }
+    return 'Signed in. ' + await begin({ url, session: r.session, account: true }, r);
+  }
+
+  /** After making the login, or recovering it: this device carries on with a session instead of the secret. */
+  function useSession(session, user) {
+    Object.assign(S, { session, user, secret: '', account: true, hold: '', out: false, lastError: '' });
+    persist(); render();
+    if (window.Lock) window.Lock.noteSheet(S.url);
+  }
+
+  /** An account or data action, with this device's secret or session. */
+  const call = (action, body) => post(S.url, cred(), Object.assign({ action }, body)).catch(e => { if (e.info) refused(e.info); throw e; });
+  /** A request that needs neither: login, questions, recover (the Sheet counts wrong tries). */
+  const callOpen = (action, body) => post(S.url, {}, Object.assign({ action }, body));
+
   function disconnect() {
     clearTimeout(timer);
+    if (S.session) post(S.url, { session: S.session }, { action: 'logout' }).catch(() => {});
     S = fresh();
     persist();
     render();
+    if (window.Lock) window.Lock.noteSheet(null);
+  }
+
+  /** Sign this device out: its session ends, and what came from the Sheet leaves it. */
+  async function signOutHere() {
+    try { await call('logout', {}); } catch (e) { /* signed out either way */ }
+    signedOut();
   }
 
   /* ---------- status ---------- */
@@ -294,6 +386,16 @@ window.Sync = (() => {
     if (!$('#syncBox')) return;
     $('#syncSetup').hidden = on;
     $('#syncOn').hidden = !on;
+    if (!on && S.hold && S.url) {
+      if (!$('#syncUrl').value) $('#syncUrl').value = S.url;
+      $('#syncLoginBox').hidden = S.hold !== 'login';
+      $('#syncSecretBox').hidden = S.hold !== 'secret';
+      $('#syncNext').hidden = true;
+      if (S.hold === 'login' && S.user && !$('#syncUser').value) $('#syncUser').value = S.user;
+      if (!$('#syncMsg').textContent) msg(S.lastError, true);
+    }
+    const who = $('#syncWho');
+    if (who) { who.hidden = !(on && S.session); who.textContent = S.session ? `Signed in as ${S.user}. Manage the login and devices under Security.` : ''; }
     const note = $('#pfBackupNote');
     if (note) note.textContent = on
       ? 'Your portfolio is saved in this browser and in your Google Sheet. The site itself never includes it.'
@@ -320,16 +422,64 @@ window.Sync = (() => {
       msg(next);
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(box.value).then(() => msg('Copied. ' + next), () => {});
     });
+    const showBoxes = which => {
+      $('#syncSecretBox').hidden = which !== 'secret';
+      $('#syncLoginBox').hidden = which !== 'login';
+      $('#syncRec').hidden = which !== 'rec';
+      $('#syncNext').hidden = !!which;
+    };
+    $('#syncUrl').addEventListener('input', () => { if (!S.hold) showBoxes(''); });
+    $('#syncNext').addEventListener('click', async () => {
+      const btn = $('#syncNext');
+      btn.disabled = true; msg('Checking your Sheet…');
+      try {
+        const h = await hello($('#syncUrl').value);
+        if (h.account) { showBoxes('login'); msg(''); $('#syncUser').focus(); }
+        else { showBoxes('secret'); msg(h.setup ? "The script has no SECRET yet. Make one below and add it in Apps Script's Script properties." : 'Paste the secret, the SECRET script property.'); $('#syncSecret').focus(); }
+      } catch (e) { msg(e.message, true); }
+      finally { btn.disabled = false; }
+    });
     $('#syncConnect').addEventListener('click', async () => {
       const btn = $('#syncConnect');
       btn.disabled = true; msg('Connecting…');
       try {
         msg(await connect($('#syncUrl').value, $('#syncSecret').value));
         $('#syncSecret').value = ''; $('#syncSecret').type = 'password';
+        emit('mf:account', { connected: true });
       } catch (e) {
         msg(e.message, true);
         if (connected()) render();
       } finally { btn.disabled = false; }
+    });
+    $('#syncLoginBox').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = $('#syncSignIn');
+      btn.disabled = true; msg('Signing in…');
+      try {
+        const keys = await window.Lock.passwordKeys($('#syncUser').value, $('#syncPass').value);
+        msg(await signIn($('#syncUrl').value, keys));
+        $('#syncPass').value = '';
+        emit('mf:account', { signedIn: true, keys });
+      } catch (err) { msg(err.message, true); $('#syncPass').select(); }
+      finally { btn.disabled = false; }
+    });
+    $('#syncForgot').addEventListener('click', () => {
+      let url;
+      try { url = checkUrl($('#syncUrl').value); } catch (e) { msg(e.message, true); return; }
+      showBoxes('rec'); msg('');
+      window.Lock.recoveryForm($('#syncRec'), {
+        url, user: $('#syncUser').value || S.user,
+        onCancel: () => showBoxes('login'),
+        onDone: async ({ keys, session, code }) => {
+          S = fresh({ url, session, user: keys.user, account: true });   // everything else comes back from the Sheet
+          persist();
+          window.Lock.showCode($('#syncRec'), code, async () => {
+            showBoxes(''); msg('Your new password is set. Syncing…');
+            emit('mf:account', { signedIn: true, keys, recovered: true });
+            try { msg('Signed in. ' + await begin({ url, session, account: true, user: keys.user }, { account: true, user: keys.user })); } catch (err) { msg(err.message, true); }
+          });
+        }
+      });
     });
     $('#syncNow').addEventListener('click', () => { msg(''); run().catch(() => {}); });
     $('#syncOff').addEventListener('click', () => {
@@ -356,14 +506,14 @@ window.Sync = (() => {
   });
   // Another tab of this site changed something: pick it up rather than
   // overwrite it with this tab's older copy.
-  window.addEventListener('storage', e => {
-    if (e.key === KEY) { S = load(); render(); return; }
+  MF.onStorage(key => {
+    if (key === KEY) { S = load(); render(); return; }
     if (!connected()) return;
     applying = true;
     try {
-      if (e.key === 'mf-portfolio:v1' && window.Portfolio) window.Portfolio.syncSet(store.json(e.key, { holdings: [] }));
-      else if (e.key === 'corpus-planner:v1' && window.Planner && window.Planner.syncSet) window.Planner.syncSet(store.json(e.key, {}));
-      else if (e.key === 'mf-bench:v1' && window.Bench) window.Bench.syncSet(store.json(e.key, {}));
+      if (key === 'mf-portfolio:v1' && window.Portfolio) window.Portfolio.syncSet(store.json(key, { holdings: [] }));
+      else if (key === 'corpus-planner:v1' && window.Planner && window.Planner.syncSet) window.Planner.syncSet(store.json(key, {}));
+      else if (key === 'mf-bench:v1' && window.Bench) window.Bench.syncSet(store.json(key, {}));
     } finally { applying = false; }
   });
   window.addEventListener('online', () => schedule(0));
@@ -378,5 +528,9 @@ window.Sync = (() => {
   render();
   if (connected()) schedule(0);
 
-  return { connected, run, connect, disconnect, makeSecret, status: () => ({ busy, lastOk: S.lastOk, lastError: S.lastError, waiting: waiting() }) };
+  return {
+    connected, run, connect, disconnect, makeSecret, hello, signIn, useSession, signOutHere, call, callOpen,
+    status: () => ({ busy, lastOk: S.lastOk, lastError: S.lastError, waiting: waiting(), url: S.url, version: S.version, account: S.account,
+                     session: !!S.session, secret: !!S.secret, user: S.user, hold: S.hold, out: S.out })
+  };
 })();

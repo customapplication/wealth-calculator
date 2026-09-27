@@ -243,7 +243,7 @@
     });
     document.addEventListener('mf:picks', () => { if (shown) render(); });
     document.addEventListener('mf:theme', () => { if (shown) render(); });
-    window.addEventListener('storage', e => { if (e.key === BKEY) { bench = tidy(store.json(BKEY, {})); if (shown) render(); } });
+    MF.onStorage(k => { if (k === BKEY) { bench = tidy(store.json(BKEY, {})); if (shown) render(); } });
   }
 
   async function show() {
