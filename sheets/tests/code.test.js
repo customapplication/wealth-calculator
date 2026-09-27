@@ -42,7 +42,7 @@ test("ping answers with the epoch, and never the Sheet's address", () => {
   assert.match(r.epoch, /^e[0-9a-z]{8,}$/);
   assert.ok(!JSON.stringify(r).includes('docs.google.com'), 'no link to the Sheet');
   assert.ok(!JSON.stringify(g.sync({ epoch: null, since: 0, changes: [] })).includes('docs.google.com'), 'nor in a sync');
-  assert.equal(r.version, 4);
+  assert.equal(r.version, 5);
   assert.equal(r.account, false, 'no login yet');
 });
 
@@ -168,7 +168,7 @@ test('the valuation fills the Portfolio tab, is never sent back, and an older on
   const snap = (navDate, value) => ({
     navDate,
     totals: { moneyIn: 100000, moneyOut: 0, net: 100000, value, gain: value - 100000, xirr: 0.1234 },
-    rows: [{ id: 'a', name: 'Parag Parikh Flexi Cap Fund', kind: 'sip', code: 122639, units: 1234.567, net: 100000, value, gain: value - 100000, xirr: 0.1234, navDate },
+    rows: [{ id: 'a', name: 'Parag Parikh Flexi Cap Fund', kind: 'sip', code: 122639, units: 1234.567, net: 100000, value, gain: value - 100000, xirr: 0.1234, navDate, sip: '₹5,000 a month' },
            { id: 'b', name: 'Old Fund', kind: 'lump', error: "Couldn't match this fund to an AMFI scheme code." }]
   });
   let r = g.sync({ changes: [change('snapshot', 'latest', 100, snap('2026-09-25', 150000))] });
@@ -176,7 +176,8 @@ test('the valuation fills the Portfolio tab, is never sent back, and an older on
   let tab = g.ss.getSheetByName('Portfolio').dump();
   assert.deepEqual(tab[0].slice(0, 3), ['Investment', 'Kind', 'Units']);
   assert.equal(tab[1][4], 150000);
-  assert.equal(tab[2][8], "Couldn't match this fund to an AMFI scheme code.");
+  assert.deepEqual([tab[0][8], tab[1][8]], ['SIP', '₹5,000 a month']);
+  assert.equal(tab[2][9], "Couldn't match this fund to an AMFI scheme code.");
   assert.equal(tab[3][0], 'Total');
   assert.match(tab[5][0], /^Valued 1970-01-01T00:00:00\.100Z, using NAVs up to 2026-09-25\./, 'dated by the record, not the data');
 

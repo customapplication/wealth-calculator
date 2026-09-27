@@ -27,7 +27,7 @@ test('hello says only whether there is a login, and needs nothing', () => {
   assert.equal(load({}).post({ action: 'hello' }).setup, true);
   const g = setup();
   let r = g.post({ action: 'hello' });
-  assert.deepEqual([r.ok, r.version, r.account, r.setup], [true, 4, false, false]);
+  assert.deepEqual([r.ok, r.version, r.account, r.setup], [true, 5, false, false]);
   g.register();
   r = g.post({ action: 'hello' });
   assert.equal(r.account, true);

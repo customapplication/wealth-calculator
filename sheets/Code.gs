@@ -1,7 +1,7 @@
 /** @OnlyCurrentDoc */
 
 /**
- * Google Sheet sync for SIPs, v4.
+ * Google Sheet sync for SIPs, v5.
  *
  * Keeps your plan and your portfolio in a Google Sheet that you own, and in
  * step across every browser you connect: a web app bound to the Sheet, a
@@ -21,6 +21,11 @@
  * each family member from the site (Security -> Family); each has
  * their own name, password and portfolio, and sees only their own on the
  * site. This Sheet's tabs show everyone's, with a Member column.
+ *
+ * v5 shows the Member column as soon as the Sheet has a login (the owner's
+ * name, even before anyone joins), rebuilds the tabs when someone joins or is
+ * removed, adds each investment's SIP (running, or when it stopped) to the
+ * Portfolio tab, and the SIP details you give a statement fund to Investments.
  *
  * SETUP (about five minutes, once; README.md has the same steps in full):
  *   1. Create a blank Google Sheet.
@@ -82,7 +87,7 @@
  */
 
 var APP = 'corpus-planner';
-var VERSION = 4;
+var VERSION = 5;
 var MIN_SECRET = 16;
 
 var MINUTE = 60000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
@@ -372,8 +377,12 @@ function register_(body, accts, secret) {
   if (made.error) return { ok: false, app: APP, error: made.error };
   saveSessions_({});
   props_().deleteProperty('guard');
+  refreshIfData_();
   return signedIn_(made.acct, newSession_(made.acct.user, body.device));
 }
+
+/** Rebuild the readable tabs after a change of people, once there's data to show. */
+function refreshIfData_() { if (book_().getSheetByName(DATA)) refreshViews_(); }
 
 /** A family member joins with the owner's one-time invite. */
 function join_(body, accts) {
@@ -396,6 +405,7 @@ function join_(body, accts) {
   delete all[h];
   saveInvites_(all);
   guardClear_('join:?');
+  refreshIfData_();
   return signedIn_(made.acct, newSession_(made.acct.user, body.device));
 }
 
@@ -622,7 +632,7 @@ function removeMember_(body, who) {
   if (acct.role === 'owner') return { ok: false, app: APP, error: "The owner can't be removed. Use the Sheet's SIPs menu to remove every login." };
   dropSessions_(user, accts);
   props_().deleteProperty('acct:' + user);
-  if (body.erase) eraseMember_(user);
+  if (body.erase) eraseMember_(user); else refreshIfData_();
   var out = members_(body, who);
   out.removed = user;
   return out;
@@ -784,6 +794,7 @@ function REMOVE_LOGIN() {
     var p = props_();
     keys_(p).forEach(function (k) { if (k.indexOf('acct:') === 0) p.deleteProperty(k); });
     ['account', 'sessions', 'guard', 'invites'].forEach(function (k) { p.deleteProperty(k); });
+    refreshIfData_();
   });
   tellOwner_("Every login is removed. Connect a device with the URL and the SECRET, then make a new login on the site. Family members' data stays in this Sheet: on the site, Security -> Family -> Invite again next to each name gives it back.");
   return true;
@@ -1082,7 +1093,8 @@ function refreshViews_(t) {
       return kindOrder_(a.h.kind) - kindOrder_(b.h.kind) || String(a.h.name || '').localeCompare(String(b.h.name || ''));
     });
   });
-  var family = list.length > 1;
+  // A Member column once the Sheet has a login (so the owner's name is known) or more than one person's data.
+  var family = list.length > 1 || !!owner;
   portfolioTab_(list, family);
   investmentsTab_(list, family);
   transactionsTab_(list, family);
@@ -1097,7 +1109,7 @@ function whoFmt_(family, formats) { return formats && family ? ['@'].concat(form
 function kindOrder_(k) { return k === 'sip' ? 0 : k === 'lump' ? 1 : 2; }
 
 function portfolioTab_(list, family) {
-  var headers = whoHead_(family, ['Investment', 'Kind', 'Units', 'Put in, net (₹)', 'Worth (₹)', 'Gain (₹)', 'XIRR', 'NAV date', 'Note']);
+  var headers = whoHead_(family, ['Investment', 'Kind', 'Units', 'Put in, net (₹)', 'Worth (₹)', 'Gain (₹)', 'XIRR', 'NAV date', 'SIP', 'Note']);
   var w = headers.length, rows = [], notes = [], sum = { net: 0, value: 0, gain: 0, n: 0 };
   list.forEach(function (p) {
     var latest = p.snapshot, snap = latest && latest.d;
@@ -1109,12 +1121,12 @@ function portfolioTab_(list, family) {
     var own = [];
     (snap.rows || []).forEach(function (r) {
       own.push(who_(family, p, r.error
-        ? [text_(r.name), KIND[r.kind] || '', '', '', '', '', '', '', text_(r.error)]
-        : [text_(r.name), KIND[r.kind] || '', num_(r.units), num_(r.net), num_(r.value), num_(r.gain), num_(r.xirr), day_(r.navDate), '']));
+        ? [text_(r.name), KIND[r.kind] || '', '', '', '', '', '', '', '', text_(r.error)]
+        : [text_(r.name), KIND[r.kind] || '', num_(r.units), num_(r.net), num_(r.value), num_(r.gain), num_(r.xirr), day_(r.navDate), text_(r.sip || ''), '']));
     });
     var tot = snap.totals;
     if (tot && own.length) {
-      own.push(who_(family, p, [family ? 'Total for ' + text_(p.name) : 'Total', '', '', num_(tot.net), num_(tot.value), num_(tot.gain), num_(tot.xirr), day_(snap.navDate), '']));
+      own.push(who_(family, p, [family ? 'Total for ' + text_(p.name) : 'Total', '', '', num_(tot.net), num_(tot.value), num_(tot.gain), num_(tot.xirr), day_(snap.navDate), '', '']));
       ['net', 'value', 'gain'].forEach(function (k) { sum[k] += Number(tot[k]) || 0; });
       sum.n++;
     }
@@ -1123,14 +1135,14 @@ function portfolioTab_(list, family) {
     notes.push((family ? text_(p.name) + ': valued ' : 'Valued ') + stamp_(latest.at) + (snap.navDate ? ', using NAVs up to ' + snap.navDate : '') + '.');
   });
   // The family's XIRR needs everyone's cash flows, which the tab doesn't have, so it's left blank.
-  if (family && sum.n > 1) rows.push(['Family', 'Total', '', '', num_(sum.net), num_(sum.value), num_(sum.gain), '', '', 'XIRR is per person']);
+  if (family && sum.n > 1) rows.push(['Family', 'Total', '', '', num_(sum.net), num_(sum.value), num_(sum.gain), '', '', '', 'XIRR is per person']);
   if (!rows.length) rows.push(pad_(['No investments yet.'], w));
   if (notes.length) {
     rows.push(pad_([''], w));
     notes.forEach(function (n) { rows.push(pad_([n], w)); });
     rows.push(pad_(['The site values a portfolio each time its owner opens it.'], w));
   }
-  tab_('Portfolio', headers, rows, notes.length ? whoFmt_(family, ['@', '@', '#,##0.000', '#,##0', '#,##0', '#,##0', '0.00%', 'd mmm yyyy', '@']) : null);
+  tab_('Portfolio', headers, rows, notes.length ? whoFmt_(family, ['@', '@', '#,##0.000', '#,##0', '#,##0', '#,##0', '0.00%', 'd mmm yyyy', '@', '@']) : null);
 }
 
 function investmentsTab_(list, family) {
@@ -1146,10 +1158,12 @@ function investmentsTab_(list, family) {
 
 function investmentRow_(x) {
     var h = x.h, sip = h.kind === 'sip', lump = h.kind === 'lump', cas = h.kind === 'cas';
+    // A statement fund's SIP, as its owner described it on the site (the amount today).
+    var s = sip ? h : cas && h.sip && !h.sip.none && +h.sip.amount > 0 ? h.sip : null;
     return [
       text_(h.name), KIND[h.kind] || text_(h.kind), num_(h.code), text_(h.isin),
-      sip || lump ? num_(h.amount) : '', sip ? num_(h.day) : '', sip ? month_(h.start) : '', sip ? month_(h.end) : '',
-      sip ? num_(h.step) : '', lump ? day_(h.date) : '', cas ? text_(h.folio) : '',
+      s || lump ? num_(s ? s.amount : h.amount) : '', s ? num_(s.day) : '', s ? month_(s.start) : '', s ? month_(s.end) : '',
+      s ? num_(s.step) : '', lump ? day_(h.date) : '', cas ? text_(h.folio) : '',
       cas ? (h.txns || []).length : '', cas ? num_(h.closeUnits) : '', new Date(x.at),
       text_(h.amc), text_(h.goal), cas ? text_(h.rta) : '', cas ? text_(h.advisor) : '',
       cas && Array.isArray(h.nominees) ? (h.nominees.length ? text_(h.nominees.join(', ')) : 'None on the statement') : '',

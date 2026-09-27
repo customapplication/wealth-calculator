@@ -120,11 +120,38 @@ test("the tabs show everyone's, with a Member column, a plan column each and a f
   assert.deepEqual([fam[4], fam[5], fam[6], fam[7]], [110000, 162000, 52000, ''], 'sums, and no made-up family XIRR');
 });
 
-test('with only the owner, the tabs keep their old columns', () => {
+test("with a login but no one else yet, the tabs already name the owner in a Member column", () => {
   const { g, owner } = family();
   g.sync(owner.session, [holding('a', 'Owner fund', 2000), plan(30000)]);
-  assert.equal(g.ss.getSheetByName('Investments').dump()[0][0], 'Fund');
-  assert.deepEqual(g.ss.getSheetByName('Plan').dump()[0], ['Setting', 'Value']);
+  const inv = g.ss.getSheetByName('Investments').dump();
+  assert.deepEqual([inv[0][0], inv[1][0], inv[1][1]], ['Member', 'priya', 'Owner fund']);
+  assert.deepEqual(g.ss.getSheetByName('Plan').dump()[0], ['Setting', 'priya']);
+  // someone joins: the tabs are rebuilt straight away, before they sync anything
+  const asha = g.join('Asha');
+  assert.equal(asha.ok, true, asha.error);
+  assert.deepEqual(g.ss.getSheetByName('Plan').dump()[0], ['Setting', 'priya', 'asha']);
+  // and removing her (keeping nothing of hers) takes her column away again
+  g.post({ action: 'removeMember', session: owner.session, user: 'asha' });
+  assert.deepEqual(g.ss.getSheetByName('Plan').dump()[0], ['Setting', 'priya']);
+});
+
+test("a statement fund's SIP details, given on the site, fill the Investments tab", () => {
+  const { g, owner } = family();
+  const cas = { c: 'holdings', id: 'c1', at: Date.now(), data: { id: 'c1', kind: 'cas', isin: 'INF000TEST01', name: 'Statement fund', folio: '1234/56', txns: [],
+    sip: { amount: 7500, day: 10, start: '2022-04', end: null, step: 10 } } };
+  const stopped = { c: 'holdings', id: 'c2', at: Date.now(), data: { id: 'c2', kind: 'cas', isin: 'INF000TEST02', name: 'Stopped fund', folio: '1234/57', txns: [],
+    sip: { amount: 2000, day: 3, start: '2020-01', end: '2023-06', step: 0 } } };
+  const none = { c: 'holdings', id: 'c3', at: Date.now(), data: { id: 'c3', kind: 'cas', isin: 'INF000TEST03', name: 'No SIP fund', folio: '1234/58', txns: [], sip: { none: true } } };
+  g.sync(owner.session, [cas, stopped, none]);
+  const inv = g.ss.getSheetByName('Investments').dump();
+  const head = inv[0], row = name => inv.find(r => r[1] === name);
+  const col = k => head.indexOf(k);
+  const isDate = x => Object.prototype.toString.call(x) === '[object Date]';    // made inside the script's own context
+  assert.deepEqual(['Amount (₹)', 'Debit day', 'Raised every year (%)'].map(k => row('Statement fund')[col(k)]), [7500, 10, 10]);
+  assert.ok(isDate(row('Statement fund')[col('First SIP')]));
+  assert.equal(row('Statement fund')[col('Stopped')], '');
+  assert.ok(isDate(row('Stopped fund')[col('Stopped')]));
+  assert.equal(row('No SIP fund')[col('Amount (₹)')], '');
 });
 
 test("devices, sign-outs and wrong tries are each person's own", () => {

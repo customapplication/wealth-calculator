@@ -24,7 +24,10 @@
     by: pref('pfMixBy', 'cat', ['fund', 'asset', 'cat', 'amc'])
   };
   const view = Object.assign({ scope: 'all', mode: 'value', group: 'cat', range: '3' }, store.json(KEY + ':view', {}));
-  if (!['cat', 'amc', 'plan', 'goal'].includes(view.group)) view.group = 'cat';
+  if (!['cat', 'amc', 'plan', 'goal', 'sip'].includes(view.group)) view.group = 'cat';
+  const Calc = window.Calc;
+  /** The holding's SIP this month (yours, or what the statement shows), or null. */
+  const sipOf = h => Calc.sipOf(h, todayMs());
   const saveView = () => store.set(KEY + ':view', JSON.stringify(view));
   const opened = new Set();          // groups shown open
   const save = () => {
@@ -118,6 +121,18 @@
     else bits.push(h.folio ? `folio ••••${esc(folioEnd(h.folio))}` : 'from your statement');
     return bits.join(' · ');
   }
+  /** "SIP ₹5,000 a month · running" or "SIP stopped Mar 2025", as a chip. */
+  function sipChip(r) {
+    const h = r.h, s = sipOf(h);
+    if (h.kind === 'lump') return '';
+    const edit = `data-sip="${esc(h.id)}"`;
+    if (!s) return h.kind === 'cas' ? `<button type="button" class="tagchip" ${edit} aria-label="No SIP seen in the statement. Add its details">${icon('edit')}Add SIP details</button>` : '';
+    const seen = s.source === 'statement' ? ' (from the statement)' : '';
+    const old = s.source === 'statement' && s.asOf && todayMs() - isoToMs(s.asOf) > 45 * DAY ? `, as of ${fmtDate(s.asOf)}` : '';
+    return s.running
+      ? `<button type="button" class="tagchip sip-on" ${edit} aria-label="SIP of ${full(s.amount)} a month, running${seen}${old}. Edit its details">${icon('refresh')}SIP ${full(s.amount)} a month · running${old}</button>`
+      : `<button type="button" class="tagchip sip-off" ${edit} aria-label="SIP stopped${s.end ? ' in ' + fmtMonth(isoToMs(s.end + '-01')) : ''}${seen}. Edit its details">${icon('close')}SIP stopped${s.end ? ' ' + fmtMonth(isoToMs(s.end + '-01')) : ''}</button>`;
+  }
 
   async function buildOne(h) {
     const code = resolveCode(h);
@@ -188,18 +203,20 @@
     if (by === 'asset') return assetClass(f);
     if (by === 'plan') return f ? `${f.p} plan` : 'Plan not known';
     if (by === 'goal') return (r.h.goal || '').trim() || 'No goal set';
+    if (by === 'sip') { const x = sipOf(r.h); return !x ? 'No SIP' : x.running ? 'SIP running' : 'SIP stopped'; }
     return nameOf(r);
   }
   function groups(by, list = results) {
     const map = new Map();
     for (const r of list) {
       // A fund house or goal is known without NAVs, so a fund that couldn't be valued stays in its group.
-      const k = r.error && by !== 'amc' && by !== 'goal' ? "Couldn't be valued" : groupKey(r, by);
+      const k = r.error && by !== 'amc' && by !== 'goal' && by !== 'sip' ? "Couldn't be valued" : groupKey(r, by);
       if (!map.has(k)) map.set(k, []);
       map.get(k).push(r);
     }
+    const SIP_ORDER = { 'SIP running': 0, 'SIP stopped': 1, 'No SIP': 2 };
     return [...map].map(([name, rs]) => ({ name, rs, t: totals(rs), err: rs.every(r => r.error) }))
-      .sort((a, b) => (a.err - b.err) || b.t.value - a.t.value || a.name.localeCompare(b.name));
+      .sort((a, b) => by === 'sip' ? SIP_ORDER[a.name] - SIP_ORDER[b.name] : (a.err - b.err) || b.t.value - a.t.value || a.name.localeCompare(b.name));
   }
 
   /* ---------- rendering ---------- */
@@ -229,10 +246,16 @@
       rows: results.map(r => {
         const name = nameOf(r);
         return r.error ? { id: r.h.id, name, kind: r.h.kind, error: r.error }
-          : { id: r.h.id, name, kind: r.h.kind, code: r.code, units: Math.round(r.units * 1000) / 1000, net: r2(r.net), value: r2(r.value), gain: r2(r.gain), xirr: rate(r.xirr), navDate: msToIso(r.lastT) };
+          : { id: r.h.id, name, kind: r.h.kind, code: r.code, units: Math.round(r.units * 1000) / 1000, net: r2(r.net), value: r2(r.value), gain: r2(r.gain), xirr: rate(r.xirr), navDate: msToIso(r.lastT), sip: sipText(r.h) };
       })
     };
     MF.emit('mf:valued', lastSnapshot);
+  }
+
+  /** For the Sheet: "₹5,000 a month" / "Stopped Mar 2025" / "". */
+  function sipText(h) {
+    const x = sipOf(h);
+    return !x ? '' : x.running ? `${full(x.amount)} a month${x.step > 0 ? `, +${x.step}% a year` : ''}` : `Stopped${x.end ? ' ' + fmtMonth(isoToMs(x.end + '-01')) : ''}`;
   }
 
   function renderEmpty() {
@@ -286,6 +309,18 @@
     };
     for (const r of results) {
       const h = r.h;
+      const s = sipOf(h);
+      if (h.kind === 'cas' && s && s.source === 'you') {
+        // Details you gave a statement fund: its day and amount.
+        if (!s.running || !s.day) continue;
+        const t = nextOn(s.day, today);
+        if (t == null) continue;
+        const d = new Date(t), m = d.getUTCFullYear() * 12 + d.getUTCMonth(), from = s.start ? Calc.monthNo(s.start) : m;
+        const now = Calc.monthOf(today);
+        out.push({ t, amount: s.amount * (m > now && m > from && (m - from) % 12 === 0 && s.step > 0 ? 1 + s.step / 100 : 1), r, est: false });
+        continue;
+      }
+      if (h.kind === 'cas' && s === null && h.sip && h.sip.none) continue;
       if (h.kind === 'sip') {
         if (h.end && h.end < msToIso(today).slice(0, 7)) continue;
         const t = nextOn(h.day, today);
@@ -369,7 +404,64 @@
       fig('Worth today', full(t.value), t.last ? `NAVs of ${fmtDate(t.last)}` : '') +
       fig('Put in', full(t.net), t.moneyOut > 0 ? `${cmp(t.moneyIn)} in, ${cmp(t.moneyOut)} out` : `since ${fmtMonth(t.first)}`) +
       fig('Gain', signed(t.gain, full), t.net > 0 ? `${pct(t.gain / t.net, 1)} of what you put in` : '', signCls(t.gain)) +
-      fig('Yearly return (XIRR)', t.xirr != null ? pct(t.xirr, 1) : '—', 'counts when each rupee went in', t.xirr != null && t.xirr < 0 ? 'loss' : '');
+      fig('Yearly return (XIRR)', t.xirr != null ? pct(t.xirr, 1) : '—', 'counts when each rupee went in', t.xirr != null && t.xirr < 0 ? 'loss' : '') +
+      sipFigure();
+  }
+
+  function sipFigure() {
+    const sips = results.map(r => sipOf(r.h)).filter(Boolean);
+    if (!sips.length) return '';
+    const on = sips.filter(x => x.running), off = sips.length - on.length;
+    const monthly = on.reduce((s2, x) => s2 + x.amount, 0);
+    return `<div><div class="k">Monthly SIPs</div><div class="v">${full(monthly)}</div><div class="d">${on.length} running${off ? `, ${off} stopped` : ''} · <button type="button" class="linkish" data-group-sip>see which</button></div></div>`;
+  }
+
+  /* ---------- SIP details: for a statement fund, or to change a SIP you entered ---------- */
+  let sipFor = null;
+  function openSip(id) {
+    const h = P.holdings.find(x => x.id === id);
+    if (!h || h.kind === 'lump') return;
+    sipFor = h;
+    const cas = h.kind === 'cas', seen = cas ? Calc.inferSip(h) : null, s = sipOf(h);
+    const base = cas ? (h.sip && +h.sip.amount > 0 ? h.sip : seen) : h;
+    $('#sipFund').textContent = h.name || '';
+    $('#sipAmtLbl').textContent = cas ? 'Monthly amount now' : 'Amount of the first SIP';
+    $('#sipNote').textContent = cas
+      ? (h.sip && h.sip.none ? "You said this fund has no SIP." : h.sip && +h.sip.amount > 0 ? 'These are the details you gave. Your statement still decides the units and value.'
+        : seen ? `Your statement shows ${seen.count} SIP instalment${seen.count === 1 ? '' : 's'}, from ${fmtMonth(isoToMs(seen.start + '-01'))} to ${fmtDate(seen.last)}${seen.running ? ', so it looks like it is still running' : ', and none since'}. Check the details and add a step-up; the statement's own units and value don't change.`
+        : "Your statement shows no SIP instalments in this fund. If you have one, add it here.")
+      : 'Changing these reprices the SIP from its first instalment.';
+    $('#sipAmt').value = base ? Math.round(base.amount) : '';
+    $('#sipDay').value = base && base.day ? base.day : '';
+    $('#sipStart').value = base && base.start ? base.start : '';
+    const running = s ? s.running : true;
+    $$('input[name="sip-status"]').forEach(x => { x.checked = x.value === (running ? 'on' : 'off'); });
+    $('#sipEnd').value = (s && s.end) || (base && base.end) || '';
+    $('#sipEndField').hidden = running;
+    $('#sipStep').value = base && base.step ? base.step : 0;
+    $('#sipCasActs').hidden = !cas;
+    $('#sipReset').hidden = !(h.sip);
+    $('#sipMsg').textContent = ''; $('#sipMsg').classList.remove('bad');
+    window.Shell.openPanel('panelSip', '#sipAmt');
+  }
+  function saveSip() {
+    const h = sipFor; if (!h) return;
+    const say = (t, bad) => { $('#sipMsg').textContent = t; $('#sipMsg').classList.toggle('bad', !!bad); };
+    const amount = +$('#sipAmt').value, day = Math.round(+$('#sipDay').value), start = $('#sipStart').value;
+    const running = ($$('input[name="sip-status"]').find(x => x.checked) || {}).value !== 'off';
+    const end = running ? null : $('#sipEnd').value || null, step = Math.max(0, +$('#sipStep').value || 0);
+    const nowMonth = msToIso(todayMs()).slice(0, 7);
+    if (!(amount >= 100)) { say('Enter an amount of at least ₹100.', true); return; }
+    if (!(day >= 1 && day <= 28)) { say('Pick a debit day between 1 and 28.', true); return; }
+    if (!/^\d{4}-\d{2}$/.test(start)) { say('Enter the month of the first SIP.', true); return; }
+    if (start > nowMonth) { say("The first SIP can't be in the future.", true); return; }
+    if (!running && !/^\d{4}-\d{2}$/.test(end || '')) { say('Enter the month it stopped.', true); return; }
+    if (end && end < start) { say('The stop month is before the first SIP.', true); return; }
+    if (step > 100) { say('A step-up above 100% a year is unlikely. Check the number.', true); return; }
+    if (h.kind === 'cas') h.sip = { amount: Math.round(amount), day, start, end, step };
+    else Object.assign(h, { amount: Math.round(amount), day, start, end, step });
+    save(); refresh();
+    window.Shell.closePanel();
   }
 
   /** A pill that opens the fund house's own website, where you log in. */
@@ -415,7 +507,7 @@
     if (r.error) {
       return `<article class="hold"><div class="hold-top"><span class="hold-name">${name}</span></div>
         <div class="hold-meta"><span>${describe(r)}</span></div><p class="hold-err">${esc(r.error)}</p>
-        <div class="hold-tags">${login}${goalBtn}${actions}</div>${casDetails(r)}</article>`;
+        <div class="hold-tags">${sipChip(r)}${login}${goalBtn}${actions}</div>${casDetails(r)}</article>`;
     }
     const check = r.unitsMatch == null ? '' : r.unitsMatch
       ? `<span class="tagchip ok">${icon('check')}Units match your statement</span>`
@@ -431,7 +523,7 @@
       <div class="hold-meta"><span>${describe(r)}</span><span class="pct ${signCls(r.gain)}">${g != null ? signed(g, x => pct(x, 1)) : ''}</span></div>
       <div class="hold-nums"><span>Put in <b>${full(r.net)}</b></span><span>Gain <b class="${signCls(r.gain)}">${signed(r.gain, full)}</b></span><span>XIRR <b>${r.xirr != null ? pct(r.xirr, 1) : '—'}</b></span><span>${units(r.units)} units · NAV of ${fmtDate(r.lastT)}</span></div>
       ${r.warn.length ? `<p class="muted small">${r.warn.map(esc).join(' ')}</p>` : ''}
-      <div class="hold-tags">${check}${lock}${kyc}${login}${goalBtn}${actions}</div>
+      <div class="hold-tags">${sipChip(r)}${check}${lock}${kyc}${login}${goalBtn}${actions}</div>
       ${casDetails(r)}
     </article>`;
   }
@@ -446,8 +538,9 @@
       const gain = g.t.net > 0 ? g.t.gain / g.t.net : null;
       const n = g.rs.length;
       const bad = g.rs.filter(r => r.error).length;
+      const monthly = view.group === 'sip' && g.name === 'SIP running' ? g.rs.reduce((s2, r) => s2 + (sipOf(r.h) || { amount: 0 }).amount, 0) : 0;
       const sub = g.err ? `${n} investment${n === 1 ? '' : 's'}${g.name === "Couldn't be valued" ? '' : ", couldn't be valued"}`
-        : `${n} fund${n === 1 ? '' : 's'}${g.t.xirr != null ? ` · XIRR ${pct(g.t.xirr, 1)}` : ''}${bad ? ` · ${bad} not valued` : ''}`;
+        : `${n} fund${n === 1 ? '' : 's'}${monthly ? ` · ${full(monthly)} a month` : ''}${g.t.xirr != null ? ` · XIRR ${pct(g.t.xirr, 1)}` : ''}${bad ? ` · ${bad} not valued` : ''}`;
       const login = view.group === 'amc' ? loginPill(g.name) : '';
       return `<section class="card grp" style="--c:${g.err ? 'var(--line-2)' : seriesColor(c, i)}">
         <button type="button" class="grp-head" data-grp="${esc(k)}" aria-expanded="${isOpen}">
@@ -828,6 +921,8 @@
       }
       const g = e.target.closest('[data-goal]');
       if (g) { editGoal(g.dataset.goal); return; }
+      const sp = e.target.closest('[data-sip]');
+      if (sp) { openSip(sp.dataset.sip); return; }
       const b = e.target.closest('[data-remove]');
       if (b) {
         const h = P.holdings.find(x => x.id === b.dataset.remove);
@@ -836,6 +931,18 @@
       }
     });
     $$('input[name="pf-group"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { view.group = r.value; saveView(); renderGroups(); } }));
+    $('#pfFigures').addEventListener('click', e => {
+      if (!e.target.closest('[data-group-sip]')) return;
+      view.group = 'sip'; saveView(); renderGroups();
+      const first = $('#pfGroups .grp-head'); if (first) { first.scrollIntoView({ block: 'start', behavior: 'smooth' }); first.focus({ preventScroll: true }); }
+    });
+    $$('input[name="sip-status"]').forEach(x => x.addEventListener('change', () => {
+      const off = x.checked && x.value === 'off';
+      if (x.checked) { $('#sipEndField').hidden = !off; if (off && !$('#sipEnd').value) $('#sipEnd').value = msToIso(todayMs()).slice(0, 7); }
+    }));
+    $('#sipSave').addEventListener('click', saveSip);
+    $('#sipReset').addEventListener('click', () => { if (!sipFor) return; delete sipFor.sip; save(); refresh(); window.Shell.closePanel(); });
+    $('#sipNone').addEventListener('click', () => { if (!sipFor) return; sipFor.sip = { none: true }; save(); refresh(); window.Shell.closePanel(); });
     typeSwitch($('#pfType'), { label: 'Chart type', value: charts.time, types: TIME_TYPES, onChange: v => { charts.time = v; setPref('pfTime', v); renderChart(); } });
     typeSwitch($('#pfMixType'), { label: 'Chart type', value: charts.mix, types: MIX_TYPES, onChange: v => { charts.mix = v; setPref('pfMix', v); renderMix(); } });
     $('#pfMixBy').value = charts.by;
@@ -883,6 +990,9 @@
       if (inited) refresh(); else renderScopeOptions();
     },
     snapshot: () => lastSnapshot,
+    /** Each valued holding with its SIP, for the Plan page's forecast. */
+    forecastItems: () => results.filter(r => !r.error).map(r => ({ id: r.h.id, name: nameOf(r), value: r.value, net: r.net, sip: sipOf(r.h), kind: r.h.kind, cat: fundOf(r) ? shortCategory(fundOf(r).k) : '' })),
+    load: () => init(),
     /** Funds held, for other pages: [{code, name}] */
     held: () => results.filter(r => !r.error).map(r => ({ code: r.code, name: nameOf(r) }))
   };
