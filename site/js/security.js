@@ -102,7 +102,7 @@
           <button type="submit" class="btn wide">${icon('lock')}Lock SIPs with this PIN</button></form></section>`);
     } else if (canMake) {
       parts.push(`<section class="sec"><h3>Make your login</h3>
-        <p class="note">One name and password for every device, kept by your Sheet's script (only a scrambled proof of it, never the password). From then on, the secret alone no longer opens your data: each device signs in, and you can sign any of them out. If you forget the password, your 3 answers plus a recovery code set a new one.</p>
+        <p class="note">One name and password for every device, kept by your Sheet's script (only a scrambled proof of it, never the password). From then on, the secret alone no longer opens your data: each device signs in, and you can sign any of them out. If you forget the password, your 3 answers plus a recovery code set a new one. You'll be the Sheet's owner, and can then invite family members, each with their own login and portfolio.</p>
         <form id="secMake">${nameField(sy.user)}${pwFields()}<p class="lbl">3 security questions <small>answers aren't stored anywhere</small></p>${qRows()}
           ${pinFields('PIN for this device')}
           <button type="submit" class="btn wide">${icon('shield')}Make the login and lock this device</button></form></section>`);
@@ -118,7 +118,7 @@
 
     // the login
     if (signedIn) {
-      parts.push(`<section class="sec"><h3>Your login</h3><p class="state-line">${icon('okcircle')}Signed in as <b>${esc(sy.user)}</b></p>
+      parts.push(`<section class="sec"><h3>Your login</h3><p class="state-line">${icon('okcircle')}<span>Signed in as <b>${esc(sy.user)}</b>${sy.role === 'owner' ? ', the Sheet\'s owner' : sy.role === 'member' ? ', a family member' : ''}</span></p>
         <details><summary class="linkish">Change the password</summary><form id="secPw">
           ${field('Your password now', 'cur', 'password', 'autocomplete="current-password"')}${pwFields()}
           <label class="check"><input type="checkbox" name="others"> Sign out every other device</label>
@@ -131,6 +131,13 @@
         <div class="btn-row"><button type="button" class="btn quiet sm" data-sec="others">Sign out every other device</button>
           <button type="button" class="btn quiet sm" data-sec="here">Sign out this device</button></div>
         <p class="hint">A device that's signed out loses its copy of your data (the Sheet keeps it) at its next sync.</p></section>`);
+      if (sy.role === 'owner') {
+        parts.push(`<section class="sec"><h3>Family</h3>
+          <p class="note">Each family member has their own name, password and portfolio, and sees only their own in SIPs. You see everyone's in your Google Sheet, with a Member column.</p>
+          <ul class="devices" id="secMembers"><li>Loading…</li></ul>
+          <div class="btn-row"><button type="button" class="btn quiet sm" data-sec="invite">${icon('plus')}Add a family member</button></div>
+          <div id="secInvite"></div></section>`);
+      }
     } else if (lk.on && canMake) {
       parts.push(`<section class="sec"><h3>Make your login</h3>
         <p class="note">One name and password for every device, kept by your Sheet's script. Use the password that opens this device, so it keeps opening it.</p>
@@ -143,6 +150,7 @@
     $$('#secBody .qrow select').forEach(sel => sel.addEventListener('change', () => { sel.closest('.qrow').querySelectorAll('.field')[1].hidden = !!sel.value; }));
     if (lk.on) L.bioPossible().then(ok => { const b = $('#secBody [data-sec="bio"]'); if (b) b.hidden = !(ok || lk.bio); });
     if (signedIn) loadDevices();
+    if (signedIn && sy.role === 'owner') loadMembers();
   }
 
   const msg = (t, bad) => { const m = $('#secMsg'); if (m) { m.textContent = t; m.classList.toggle('bad', !!bad); } };
@@ -155,6 +163,38 @@
       ul.innerHTML = r.devices.map(d => `<li><span>${esc(d.name)}${d.current ? ' <b>(this one)</b>' : ''}<small>Signed in ${when(d.created)} · last seen ${when(d.seen)}</small></span>
         ${d.current ? '' : `<button type="button" class="linkish danger" data-out="${esc(d.id)}">Sign out</button>`}</li>`).join('') || '<li>None</li>';
     } catch (e) { if (ul) ul.innerHTML = `<li class="bad">${esc(e.message)}</li>`; }
+  }
+
+  const when = ms => new Date(ms).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  async function loadMembers() {
+    const ul = $('#secMembers');
+    try {
+      const r = await S().call('members', {});
+      ul.innerHTML = r.members.map(m => `<li><span>${esc(m.user)}${m.you ? ' <b>(you, the owner)</b>' : m.role === 'owner' ? ' (owner)' : ''}
+          <small>${m.devices} device${m.devices === 1 ? '' : 's'} signed in${m.seen ? ` · last seen ${when(m.seen)}` : ''}</small></span>
+          ${m.role === 'owner' ? '' : `<button type="button" class="linkish danger" data-member="${esc(m.user)}">Remove</button>`}</li>`).join('') +
+        (r.kept || []).map(u => `<li><span>${esc(u)} <small>Removed. Their investments and plan are kept in your Sheet.</small></span>
+          <span class="acts"><button type="button" class="linkish" data-reinvite="${esc(u)}">Invite again</button>
+          <button type="button" class="linkish danger" data-erase="${esc(u)}">Erase</button></span></li>`).join('') +
+        (r.invites.length ? `<li><span class="muted small">${r.invites.length} invite${r.invites.length === 1 ? '' : 's'} not used yet</span>
+          <button type="button" class="linkish danger" data-sec="uninvite">Cancel ${r.invites.length === 1 ? 'it' : 'them'}</button></li>` : '');
+    } catch (e) { if (ul) ul.innerHTML = `<li class="bad">${esc(e.message)}</li>`; }
+  }
+
+  /** The invite as a link that opens SIPs with the Sheet and the code filled in. */
+  function inviteLink(url, code) {
+    const u = btoa(url).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return `${location.origin}${location.pathname}#join=${u}.${code.replace(/-/g, '')}`;
+  }
+  function showInvite(code, exp, user) {
+    const link = inviteLink(S().status().url, code), until = new Date(exp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    $('#secInvite').innerHTML = `<div class="code-box">
+      ${user ? `<p><b>Send this to ${esc(user)}.</b> It works once, until ${esc(until)}, and only with the name ${esc(user)}: they choose a new password and PIN, and get their investments back.</p>`
+        : `<p><b>Send this to the family member.</b> It works once, until ${esc(until)}. They open it on their phone or computer and choose their own name, password and PIN.</p>`}
+      <label class="field"><span class="lbl">Invite link</span><span class="box"><input readonly id="secInviteLink" value="${esc(link)}"></span></label>
+      <div class="btn-row"><button type="button" class="btn sm" data-sec="copy">Copy the link</button></div>
+      <p class="hint">Or give them your Sheet's web app URL and this code: in SIPs they open Google Sheet, paste the URL, press Continue, and choose Join with an invite.</p>
+      <p class="code">${esc(code)}</p></div>`;
   }
 
   /** Run a form's work with its button disabled and errors shown. */
@@ -174,7 +214,7 @@
     const code = L.newRecoveryCode();
     const [keys, rec] = await Promise.all([L.passwordKeys(user, pw), L.recoveryProof(user, as, code)]);
     const r = await S().call('register', { user, auth: keys.auth, rec, questions: qs, device: L.deviceName() });
-    S().useSession(r.session, r.user);
+    S().useSession(r.session, r.user, r.role);
     if (pin) await L.setup({ keys, pin, url: S().status().url }); else await L.rewrap(keys);
     busy = false; render();
     msg('Your login is made, and this device is signed in.');
@@ -207,6 +247,13 @@
       await L.setup({ keys, pin, url: st.url });
       heldKeys = null;
       busy = false; render(); msg('SIPs is locked with your PIN on this device.');
+    });
+    else if (f.id === 'secRemove') work(f, async () => {
+      const user = f.dataset.user, r = await S().call('removeMember', { user, erase: f.erase.checked });
+      $('#secInvite').innerHTML = '';
+      msg(f.erase.hidden ? `${r.removed}'s investments and plan are erased from the Sheet.`
+        : `${r.removed} is removed and signed out.${f.erase.checked ? ' Their data is erased from the Sheet.' : ' Their data stays in the Sheet.'}`);
+      loadMembers();
     });
     else if (f.id === 'secPinForm') work(f, async () => {
       const pin = pinOf(f);
@@ -241,9 +288,43 @@
   });
 
   document.addEventListener('click', async e => {
-    const b = e.target.closest('#secBody [data-sec], #secBody [data-out]');
+    const b = e.target.closest('#secBody [data-sec], #secBody [data-out], #secBody [data-member], #secBody [data-reinvite], #secBody [data-erase]');
     if (!b || busy) return;
     const what = b.dataset.sec;
+    if (b.dataset.member) {
+      const u = esc(b.dataset.member);
+      $('#secInvite').innerHTML = `<form id="secRemove" data-user="${u}" class="code-box">
+        <p><b>Remove ${u}?</b> Their login goes and their devices are signed out. Their investments and plan stay in your Sheet, and come back when you choose Invite again next to their name.</p>
+        <label class="check"><input type="checkbox" name="erase"> Also erase their investments and plan from the Sheet</label>
+        <div class="btn-row"><button type="submit" class="btn sm danger">Remove ${u}</button><button type="button" class="btn quiet sm" data-sec="cancel">Cancel</button></div></form>`;
+      return;
+    }
+    if (b.dataset.reinvite) {
+      try { const r = await S().call('invite', { user: b.dataset.reinvite }); showInvite(r.code, r.exp, r.user); msg(''); loadMembers(); } catch (err) { msg(err.message, true); }
+      return;
+    }
+    if (b.dataset.erase) {
+      const u = esc(b.dataset.erase);
+      $('#secInvite').innerHTML = `<form id="secRemove" data-user="${u}" class="code-box">
+        <p><b>Erase ${u}'s investments and plan?</b> They go from your Sheet for good.</p>
+        <input type="checkbox" name="erase" checked hidden>
+        <div class="btn-row"><button type="submit" class="btn sm danger">Erase</button><button type="button" class="btn quiet sm" data-sec="cancel">Cancel</button></div></form>`;
+      return;
+    }
+    if (what === 'cancel') { $('#secInvite').innerHTML = ''; return; }
+    if (what === 'uninvite') {
+      try { await S().call('cancelInvites', {}); $('#secInvite').innerHTML = ''; msg('Unused invites cancelled. Their links no longer work.'); loadMembers(); } catch (err) { msg(err.message, true); }
+      return;
+    }
+    if (what === 'invite') {
+      try { const r = await S().call('invite', {}); showInvite(r.code, r.exp); msg(''); loadMembers(); } catch (err) { msg(err.message, true); }
+      return;
+    }
+    if (what === 'copy') {
+      const box = $('#secInviteLink');
+      try { await navigator.clipboard.writeText(box.value); msg('Copied the invite link.'); } catch (err) { box.select(); msg('Select the link and copy it.'); }
+      return;
+    }
     if (b.dataset.out) {
       try { await S().call('signOut', { which: b.dataset.out }); msg('That device is signed out.'); loadDevices(); } catch (err) { msg(err.message, true); }
     } else if (what === 'lock') L.lockNow('now');
@@ -270,7 +351,7 @@
   document.addEventListener('mf:account', async e => {
     const d = e.detail || {};
     if (d.signedIn && d.keys) {
-      if (L.on()) { await L.rewrap(d.keys); L.noteSheet(S().status().url); }
+      if (L.on()) { const was = L.status().user; await L.rewrap(d.keys, !!was && was !== d.keys.user); L.noteSheet(S().status().url); }
       else { heldKeys = d.keys; setTimeout(() => { if (window.Shell) window.Shell.openPanel('panelSecurity'); }, 600); }
     }
     render(); note();
@@ -290,6 +371,63 @@
       : 'The login on your Google Sheet was removed. Connect this device again with the secret.';
   }
   $$('.lock-now').forEach(b => b.addEventListener('click', () => L.lockNow('now')));
+
+  /* ---------- joining a family's Sheet with an invite ---------- */
+  function joinForm(host, { url, code, onCancel }) {
+    host.hidden = false;
+    host.innerHTML = `<form class="lock-form join-form">
+      <h3>Join with an invite</h3>
+      <p class="hint join-msg" aria-live="polite">You get your own name, password and portfolio in this family's Sheet. Nobody else sees your password.</p>
+      ${field('Invite code', 'invite', 'text', `autocomplete="off" spellcheck="false" autocapitalize="characters" value="${esc(code ? code.slice(0, 5) + '-' + code.slice(5) : '')}"`)}
+      ${nameField('')}${pwFields()}<p class="lbl">3 security questions <small>answers aren't stored anywhere</small></p>${qRows()}
+      <button type="submit" class="btn wide">${icon('plus')}Join</button>
+      ${onCancel ? '<button type="button" class="linkish" data-cancel>Back</button>' : ''}</form>`;
+    const f = $('form', host), say = (t, bad) => { const m = $('.join-msg', host); m.textContent = t; m.classList.toggle('bad', !!bad); };
+    $$('.qrow select', host).forEach(sel => sel.addEventListener('change', () => { sel.closest('.qrow').querySelectorAll('.field')[1].hidden = !!sel.value; }));
+    if (onCancel) $('[data-cancel]', host).addEventListener('click', onCancel);
+    f.addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = $('button[type="submit"]', f);
+      btn.disabled = true;
+      try {
+        const invite = f.invite.value.trim(), user = userOf(f), pw = pwOf(f), { qs, as } = questionsOf(f);
+        if (invite.replace(/[^0-9A-Za-z]/g, '').length !== 10) fail('Type the whole invite code: 10 letters and digits.');
+        say('Joining… this takes a few seconds.');
+        const recCode = L.newRecoveryCode();
+        const [keys, rec] = await Promise.all([L.passwordKeys(user, pw), L.recoveryProof(user, as, recCode)]);
+        const r = await S().join(url, { invite, user, auth: keys.auth, rec, questions: qs });
+        L.showCode(host, recCode, async () => {
+          host.innerHTML = '<p class="hint">Signing you in…</p>';
+          try {
+            const text = await S().enter(url, r, keys);
+            host.innerHTML = `<p class="hint">${esc(text)}</p>`;
+            document.dispatchEvent(new CustomEvent('mf:account', { detail: { signedIn: true, keys, joined: true } }));
+          } catch (err) { host.innerHTML = `<p class="hint bad">${esc(err.message)}</p>`; }
+        });
+      } catch (err) { say(err.message, true); }
+      finally { btn.disabled = false; }
+    });
+    setTimeout(() => (code ? f.user : f.invite).focus(), 0);
+  }
+
+  /** An invite link: #join=<the web app URL, base64url>.<the code>. It opens the join form. */
+  (function joinLink() {
+    const m = /^#join=([A-Za-z0-9_-]+)\.([0-9A-Za-z]{10})$/.exec(location.hash);
+    if (!m) return;
+    history.replaceState(null, '', location.pathname + location.search + '#home');
+    let url = '';
+    try { url = S().checkUrl(atob(m[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch (e) { return; }
+    const open = () => {
+      if (!window.Shell) { setTimeout(open, 50); return; }
+      window.Shell.openPanel('panelSheet');
+      $('#syncUrl').value = url;
+      ['#syncNext', '#syncSecretBox', '#syncLoginBox', '#syncRec'].forEach(sel => { $(sel).hidden = true; });
+      joinForm($('#syncJoin'), { url, code: m[2].toUpperCase() });
+    };
+    open();
+  })();
+
+  window.Security = { joinForm };
   note();
   render();
 })();
