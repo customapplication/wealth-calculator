@@ -104,7 +104,15 @@
       if (!r || r.created < watchFrom - 5 * 60e3) return;
       if (r.status !== 'completed') { msg(`${runText(r)}. It usually takes 2 to 6 minutes.`); return; }
       clearInterval(polling);
-      if (r.conclusion === 'success') { msg('The fund data is updated.'); $('#dataReload').hidden = false; }
+      if (r.conclusion === 'success') {
+        msg('The fund data is updated. Loading the new NAVs here…');
+        $('#dataReload').hidden = false;
+        // Pages can take a minute to serve the new files: try a few times, then revalue in place.
+        let fresh = false;
+        for (let i = 0; i < 6 && !fresh; i++) { fresh = await MF.checkData(); if (!fresh) await new Promise(res => setTimeout(res, 20e3)); }
+        if (fresh) { msg('The fund data is updated, and your portfolio has been revalued with the new NAVs.'); $('#dataReload').hidden = true; }
+        else msg('The fund data is updated. If the new NAVs don\'t show yet, reload the page in a minute.');
+      }
       else msg('The update didn\'t finish. Open the latest run to see why.', true);
     }, POLL);
   }
@@ -112,5 +120,6 @@
   $('#dataGo').addEventListener('click', start);
   $('#dataReload').addEventListener('click', async () => { if (window.Lock) await window.Lock.flush(); location.reload(); });
   document.addEventListener('mf:panel', e => { if (e.detail.id === 'panelData' && e.detail.open) { msg(''); render(); } });
+  document.addEventListener('mf:data', () => loadMeta());
   loadMeta();
 })();

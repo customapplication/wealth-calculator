@@ -246,3 +246,45 @@ test("the menu's Remove the login removes everyone's; their data stays", () => {
   assert.equal(g.sync(owner.session).noAccount, true);
   assert.ok(g.ss.getSheetByName('_data').dump().some(row => row[0] === '@asha|holdings/b'));
 });
+
+test('saved comparisons fill the Comparisons tab, with the Member column', () => {
+  const { g, owner } = family();
+  const asha = g.join('Asha');
+  const cmp = list => ({ c: 'settings', id: 'compare', at: Date.now(), data: { list } });
+  g.sync(owner.session, [cmp([{ id: 'abcd1234', name: 'Flexi vs index', funds: [1, 2], names: ['A Flexi Cap Fund - Direct Plan - Growth', 'B Nifty 50 Index Fund - Direct Plan - Growth'], range: '5', mode: 'sip', amount: 5000, at: Date.UTC(2026, 8, 27) }])]);
+  g.sync(asha.session, [cmp([{ id: 'efgh5678', name: 'Small caps', funds: [3], range: 'all', mode: 'lump', amount: 10000, at: Date.UTC(2026, 8, 26) }])]);
+  const tab = g.ss.getSheetByName('Comparisons').dump();
+  assert.deepEqual(tab[0], ['Member', 'Name', 'Funds', 'How', 'Amount (₹)', 'Period', 'Saved']);
+  assert.deepEqual(tab[1].slice(0, 6), ['priya', 'Flexi vs index', 'A Flexi Cap Fund - Direct Plan - Growth · B Nifty 50 Index Fund - Direct Plan - Growth', 'Monthly SIP', 5000, '5 years']);
+  assert.deepEqual(tab[2].slice(0, 6), ['asha', 'Small caps', 'Scheme 3', 'Lump sum', 10000, 'Longest there is']);
+});
+
+test('the owner shares the family summary with a member; it is read-only and leaves out folios and units', () => {
+  const { g, owner } = family();
+  const asha = g.join('Asha'), ravi = g.join('Ravi');
+  const snap = (value, net) => ({ c: 'snapshot', id: 'latest', at: Date.now(), data: { navDate: '2026-09-25',
+    rows: [{ id: 'x', name: 'A fund', kind: 'cas', code: 1, units: 12.345, net, value, gain: value - net, xirr: 0.1, navDate: '2026-09-25', sip: '₹5,000 a month', folio: '1234/56' }],
+    totals: { net, value, gain: value - net, xirr: 0.1 } } });
+  g.sync(owner.session, [snap(300000, 200000)]);
+  g.sync(asha.session, [snap(50000, 40000)]);
+  let r = g.post({ action: 'familySummary', session: asha.session });
+  assert.equal(r.notAllowed, true, 'not until the owner shares it');
+  assert.equal(g.post({ action: 'shareSummary', session: asha.session, user: 'asha', on: true }).notOwner, true, 'only the owner shares it');
+  r = g.post({ action: 'shareSummary', session: owner.session, user: 'asha', on: true });
+  assert.equal(r.members.find(m => m.user === 'asha').sees, true);
+  assert.equal(r.members.find(m => m.user === 'ravi').sees, false);
+  r = g.post({ action: 'familySummary', session: asha.session });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.people.map(p => [p.name, p.role, p.you]), [['priya', 'owner', false], ['asha', 'member', true], ['ravi', 'member', false]]);
+  assert.deepEqual(r.people[0].totals, { net: 200000, value: 300000, gain: 100000, xirr: 0.1 });
+  assert.deepEqual(Object.keys(r.people[0].rows[0]).sort(), ['gain', 'kind', 'name', 'net', 'sip', 'value', 'xirr']);
+  assert.equal(r.people[2].totals, null, 'Ravi has not valued his yet');
+  assert.equal(g.post({ action: 'familySummary', session: ravi.session }).notAllowed, true, 'Ravi was not given it');
+  assert.equal(g.post({ action: 'familySummary', session: owner.session }).ok, true, 'the owner always can');
+  // taken back
+  g.post({ action: 'shareSummary', session: owner.session, user: 'asha', on: false });
+  assert.equal(g.post({ action: 'familySummary', session: asha.session }).notAllowed, true);
+  // and never with the secret alone
+  const s = load({ SECRET });
+  assert.equal(s.post({ action: 'familySummary', secret: SECRET }).notAllowed, true);
+});

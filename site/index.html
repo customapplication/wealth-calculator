@@ -132,6 +132,7 @@
           <span class="eyebrow" id="homeAsOf">Worth today</span>
           <span class="big fig" id="homeWorth">—</span>
           <span class="hero-line"><span id="homeGain"></span> <span class="muted" id="homeIn"></span></span>
+          <span class="hero-day" id="homeDay" hidden></span>
           <span class="xirr-chip" id="homeXirr" hidden></span>
         </div>
         <div class="hero-actions desk-only">
@@ -184,6 +185,11 @@
         <a class="act" href="#compare"><svg class="ic" aria-hidden="true"><use href="#i-compare"/></svg>Compare funds</a>
       </section>
     </div>
+
+    <section class="card" id="homeFamily" hidden>
+      <div class="card-head stack"><h2>Family</h2><span class="muted small" id="homeFamilySub"></span></div>
+      <ul class="family-list" id="homeFamilyList"></ul>
+    </section>
   </section>
 
   <!-- ============================== Portfolio ============================== -->
@@ -336,29 +342,35 @@
   <!-- ============================== Compare ============================== -->
   <section class="view" id="view-compare" data-view="compare" hidden>
     <header class="vhead">
-      <h1 class="vtitle">Compare funds</h1>
-      <div class="vhead-actions"><button type="button" class="btn quiet sm" id="cmpSaveBtn" hidden><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg>Save this comparison</button></div>
+      <div class="vhead-title"><span class="eyebrow" id="cmpEyebrow" hidden>Saved comparison</span><h1 class="vtitle" id="cmpHeading" tabindex="-1">Compare funds</h1></div>
+      <div class="vhead-actions" id="cmpActs" hidden>
+        <button type="button" class="btn quiet sm" id="cmpSaveBtn"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg><span>Save</span></button>
+        <button type="button" class="btn quiet sm" id="cmpCloseBtn"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg>Close</button>
+      </div>
     </header>
     <form class="card save-box" id="cmpSaveBox" hidden>
       <label class="field"><span class="lbl">Name this comparison</span><span class="box"><input id="cmpSaveName" type="text" maxlength="60" autocomplete="off" placeholder="e.g. Flexi caps vs the index"></span></label>
       <div class="btn-row"><button type="submit" class="btn sm">Save</button><button type="button" class="btn quiet sm" id="cmpSaveCancel">Cancel</button><span class="hint" id="cmpSaveMsg" aria-live="polite"></span></div>
     </form>
-    <section class="card" id="cmpSaved" hidden>
-      <div class="card-head"><h2>Saved comparisons</h2><span class="muted small" id="cmpSavedSub"></span></div>
-      <ul class="saved-list" id="cmpSavedList"></ul>
-    </section>
-    <div class="cmp-add">
-      <div class="combo" id="cmpAddBox">
-        <label class="search" for="cmpAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg><input id="cmpAdd" type="search" placeholder="Add a fund to compare" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="cmpAddList"></label>
-        <ul id="cmpAddList" class="combo-list" role="listbox" aria-label="Funds" hidden></ul>
+    <div id="cmpHome">
+      <div class="cmp-start">
+        <button type="button" class="btn" data-cmp-pick><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>New comparison</button>
+        <a class="btn quiet" href="#explore"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg>Explore funds</a>
+      </div>
+      <section class="card" id="cmpSaved" hidden>
+        <div class="card-head"><h2>Saved comparisons</h2><span class="muted small" id="cmpSavedSub"></span></div>
+        <ul class="saved-list" id="cmpSavedList"></ul>
+      </section>
+      <div id="cmpEmpty" class="welcome" hidden>
+        <h2>Compare up to 5 funds</h2>
+        <p>Choose funds from any category, Direct or Regular, and see what a lump sum or a monthly SIP would have grown to in each, next to the typical fund in the category and its benchmark. Save a comparison to come back to it; your saved ones sync to your Google Sheet.</p>
       </div>
     </div>
-    <div id="cmpEmpty" class="welcome" hidden>
-      <h2>Pick funds to compare</h2>
-      <p>Add up to 5 funds above, or tick <b>Compare</b> next to them on Explore funds. You'll see what a lump sum or a monthly SIP would have grown to in each, next to the typical fund in the category and its benchmark. Save a comparison to come back to it.</p>
-      <a class="btn" href="#explore"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg>Explore funds</a>
-    </div>
     <div id="cmpBody" hidden>
+      <div class="cmp-funds">
+        <button type="button" class="btn quiet sm" data-cmp-pick><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg>Add or change funds</button>
+        <span class="box sel cmp-switch" id="cmpSwitchBox" hidden><select id="cmpSwitch" aria-label="Open another saved comparison"></select></span>
+      </div>
       <div class="cmp-controls">
         <div class="seg" role="group" aria-label="How you invest" id="cmpMode">
           <button type="button" class="seg-btn" data-mode="lump">Lump sum</button>
@@ -700,6 +712,31 @@
     <button type="button" class="btn wide" id="pfAdd">Add to portfolio</button>
     <p class="hint" id="pfAddMsg" role="status"></p>
   </div>
+</div>
+
+<div class="panel" id="panelFamily" role="dialog" aria-modal="true" aria-labelledby="panelFamilyTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelFamilyTitle">Portfolio</b><span class="ph-sum" id="famSub"></span></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body">
+    <div class="figs4 fam-figs" id="famFigs"></div>
+    <ul class="fam-funds" id="famFunds" aria-label="Funds"></ul>
+    <p class="hint" id="famNote">View only. Figures are from when this person last opened SIPs.</p>
+  </div>
+</div>
+
+<div class="panel" id="panelCmpPick" role="dialog" aria-modal="true" aria-labelledby="panelCmpPickTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelCmpPickTitle">Choose funds to compare</b><span class="ph-sum" id="cpCount" aria-live="polite"></span></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body">
+    <div class="bench-chips" id="cpChosen"></div>
+    <label class="search boxed" for="cpSearch"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><input id="cpSearch" type="search" placeholder="Fund name, fund house or scheme code" autocomplete="off" spellcheck="false" aria-controls="cpList"></label>
+    <div class="seg cp-plan" role="group" aria-label="Plans to show" id="cpPlan">
+      <button type="button" class="seg-btn" data-plan="both">Direct and Regular</button>
+      <button type="button" class="seg-btn" data-plan="Direct">Direct</button>
+      <button type="button" class="seg-btn" data-plan="Regular">Regular</button>
+    </div>
+    <p class="hint" id="cpMsg" aria-live="polite"></p>
+    <ul class="pick-list" id="cpList" aria-label="Funds"></ul>
+  </div>
+  <div class="panel-foot"><button type="button" class="btn" id="cpApply">Compare these funds</button><button type="button" class="btn quiet" data-panel-close>Cancel</button></div>
 </div>
 
 <div class="panel" id="panelSip" role="dialog" aria-modal="true" aria-labelledby="panelSipTitle" hidden>

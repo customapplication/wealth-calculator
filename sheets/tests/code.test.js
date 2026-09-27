@@ -42,7 +42,7 @@ test("ping answers with the epoch, and never the Sheet's address", () => {
   assert.match(r.epoch, /^e[0-9a-z]{8,}$/);
   assert.ok(!JSON.stringify(r).includes('docs.google.com'), 'no link to the Sheet');
   assert.ok(!JSON.stringify(g.sync({ epoch: null, since: 0, changes: [] })).includes('docs.google.com'), 'nor in a sync');
-  assert.equal(r.version, 5);
+  assert.equal(r.version, 6);
   assert.equal(r.account, false, 'no login yet');
 });
 
@@ -195,7 +195,7 @@ test('the readable tabs show the plan and the investments in the right order', (
     change('settings', 'plan', 1, { monthlySip: 46000, rates: [8, 10, 12], swpEnabled: true, timing: 'end', stepUpType: 'pct', currentAge: '' })
   ] });
   const names = g.ss.getSheets().map(s => s.getName());
-  assert.deepEqual(names, ['Portfolio', 'Investments', 'Transactions', 'Plan', 'Sheet1', '_data']);
+  assert.deepEqual(names, ['Portfolio', 'Investments', 'Transactions', 'Plan', 'Comparisons', 'Sheet1', '_data']);
   const inv = g.ss.getSheetByName('Investments').dump();
   assert.deepEqual(inv.slice(1).map(r => r[1]), ['Monthly SIP', 'One-time']);
   assert.ok(isDate(inv[1][6]) && inv[1][6].getFullYear() === 2021 && inv[1][6].getMonth() === 3, 'first SIP is a real date');

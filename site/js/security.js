@@ -133,7 +133,7 @@
         <p class="hint">A device that's signed out loses its copy of your data (the Sheet keeps it) at its next sync.</p></section>`);
       if (sy.role === 'owner') {
         parts.push(`<section class="sec"><h3>Family</h3>
-          <p class="note">Each family member has their own name, password and portfolio, and sees only their own in SIPs. You see everyone's in your Google Sheet, with a Member column.</p>
+          <p class="note">Each family member has their own name, password and portfolio, and sees only their own in SIPs. You see everyone's in your Google Sheet, and on Home. Tick <b>Can see the family summary</b> to let someone see everyone's funds and figures too, read-only: no folios, nominees or transactions.</p>
           <ul class="devices" id="secMembers"><li>Loading…</li></ul>
           <div class="btn-row"><button type="button" class="btn quiet sm" data-sec="invite">${icon('plus')}Add a family member</button></div>
           <div id="secInvite"></div></section>`);
@@ -212,7 +212,8 @@
     try {
       const r = await S().call('members', {});
       ul.innerHTML = r.members.map(m => `<li><span>${esc(m.user)}${m.you ? ' <b>(you, the owner)</b>' : m.role === 'owner' ? ' (owner)' : ''}
-          <small>${m.devices} device${m.devices === 1 ? '' : 's'} signed in${m.seen ? ` · last seen ${when(m.seen)}` : ''}</small></span>
+          <small>${m.devices} device${m.devices === 1 ? '' : 's'} signed in${m.seen ? ` · last seen ${when(m.seen)}` : ''}</small>
+          ${m.role === 'owner' ? '' : `<label class="check sm"><input type="checkbox" data-sees="${esc(m.user)}"${m.sees ? ' checked' : ''}> Can see the family summary</label>`}</span>
           ${m.role === 'owner' ? '' : `<button type="button" class="linkish danger" data-member="${esc(m.user)}">Remove</button>`}</li>`).join('') +
         (r.kept || []).map(u => `<li><span>${esc(u)} <small>Removed. Their investments and plan are kept in your Sheet.</small></span>
           <span class="acts"><button type="button" class="linkish" data-reinvite="${esc(u)}">Invite again</button>
@@ -398,7 +399,19 @@
       S().signOutHere();
     }
   });
-  document.addEventListener('change', e => { if (e.target.id === 'secAfter') { L.setAfter(+e.target.value); msg('Saved.'); } });
+  document.addEventListener('change', async e => {
+    if (e.target.id === 'secAfter') { L.setAfter(+e.target.value); msg('Saved.'); return; }
+    const box = e.target.closest && e.target.closest('#secMembers input[data-sees]');
+    if (!box) return;
+    const user = box.dataset.sees, on = box.checked;
+    box.disabled = true;
+    try {
+      await S().call('shareSummary', { user, on });
+      msg(on ? `${user} can now see the family summary on Home: everyone's funds and figures, read-only.` : `${user} no longer sees the family summary.`);
+      document.dispatchEvent(new CustomEvent('mf:family'));
+    } catch (err) { box.checked = !on; msg(err.message, true); }
+    finally { box.disabled = false; }
+  });
 
   /* ---------- after signing in: the lock follows the password ---------- */
   document.addEventListener('mf:account', async e => {
