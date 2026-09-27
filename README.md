@@ -1,4 +1,4 @@
-# Corpus planner
+# SIPs
 
 Plan SIPs and SWPs, rank Indian mutual funds within each category using AMFI's official NAVs, and track your own portfolio from its first SIP. There's no AI anywhere in it. GitHub Actions rebuilds the data every night and GitHub Pages serves the site for free.
 
@@ -6,7 +6,7 @@ The site has three pages:
 
 - **Plan**: the SIP, step-up SIP and SWP calculator, including its editable engine.
 - **Explore funds**: pick a category and rank its funds by the measure you choose. Select a fund to see its NAV chart, then send its return to the planner or start a SIP in it.
-- **My portfolio**: add SIPs by hand, or import your CAS statement for exact figures. You'll see value, money in, gain and XIRR from your first instalment, with a chart, and what you hold by fund, asset class, category or fund house. It's kept in your browser and, if you connect one, in a Google Sheet you own.
+- **My portfolio**: add SIPs by hand, or import your CAS statement PDF for exact figures. You'll see value, money in, gain and XIRR from your first instalment, with a chart, and what you hold by fund, asset class, category or fund house. It's kept in your browser and, if you connect one, in a Google Sheet you own.
 
 Every chart has a switch for its type: line, area or bars for anything over time, and donut, pie or bars for what you hold. On a phone the site leads with results, puts the inputs in a panel that slides up, and has a tab bar at the bottom. To use it like an app, open it in your phone's browser and choose **Add to Home screen** (on an iPhone, Share → **Add to Home Screen**).
 
@@ -45,6 +45,7 @@ Then open http://localhost:8000. Opening `index.html` straight from disk won't w
 | Latest NAV, category, plan and option of every scheme | AMFI's `NAVAll.txt` |
 | The last 7 days re-checked, and any missing days filled | AMFI's NAV history report |
 | Older history (backfill only) | MFapi.in, a free copy of AMFI's data |
+| Launch date of each scheme and plan | AMFI's scheme data file |
 
 These rules keep the data honest:
 
@@ -56,19 +57,23 @@ These rules keep the data honest:
 
 The Explore page explains each measure under "How these numbers are worked out".
 
+The nightly build also writes what the fund comparison needs:
+
+- **Launch dates** from AMFI's scheme data file, for each plan and for the scheme itself. A date AMFI doesn't give is left blank. If the file can't be fetched, the last good copy is used.
+- **The typical fund** in each category and plan: the median of its funds' weekly returns, chained week by week, in `site/data/cat/`.
+- **A default benchmark** for each equity category. Index values come from NSE rather than AMFI, so an index fund stands in: the Direct Growth plan with the longest history that tracks the index, such as a Nifty 500 index fund for flexi cap funds. The choices are in `benchmarks` in `pipeline/build.py`, and you can override them in `pipeline/config.json`.
+- **Official websites**: MF Central, CAMS, KFintech and each fund house, listed in `pipeline/links.json`. Each night the build checks every address. A site that no longer exists is hidden, and `meta.json` lists it along with any fund house that has no entry.
+
 ## Your portfolio
 
 There are two ways to add investments:
 
 - **By hand.** Enter the fund, SIP amount, debit day, start month and optional yearly step-up. Each instalment is priced at the first NAV on or after the debit date, less the 0.005% stamp duty charged since July 2020. Your real allotment can land a day or two later, so treat these as close estimates.
-- **From your CAS, exactly.** Request a **Detailed** Consolidated Account Statement from camsonline.com or MF Central, covering the period from before your first investment to today. Then, on your computer, run:
+- **From your CAS, exactly.** Request a **Detailed** Consolidated Account Statement (CAMS + KFintech) from camsonline.com, MF Central or KFintech, covering the period from before your first investment to today, with a password you choose. It arrives by email as a PDF. On the My portfolio page, choose **Import your statement**, pick the PDF and type its password.
 
-  ```bash
-  pip install -r tools/requirements.txt
-  python tools/cas_to_json.py cas.pdf --out my-portfolio.json   # asks for the PDF password
-  ```
+  The PDF is read in your browser, by a copy of PDF.js that this site serves itself, and it's never uploaded. The page keeps each fund's ISIN, name and fund house, the last 4 characters of the folio, and every transaction; your name, PAN, email, phone and address aren't kept. For every fund it checks that the opening units plus each transaction add up to the statement's closing balance, and it tells you if any don't.
 
-  Import `my-portfolio.json` on the My portfolio page. The converter drops your name, PAN, email, phone and address, and keeps only the last 4 digits of each folio. The page checks your computed units against the statement's closing balance for every fund.
+  Importing a newer statement later merges with what's there: for each fund, the new statement replaces its own period and older transactions stay. A statement that starts after your first investment can't show your full cost, and the page says which funds are affected.
 
 Your portfolio is stored in your browser's local storage. Use **Download backup** to keep a copy or move it to another browser, or connect a Google Sheet (below) to keep every device in step. `.gitignore` already excludes PDFs and portfolio files, so keep them out of the repository.
 
@@ -89,7 +94,7 @@ A hidden `_data` tab holds the records the devices sync. Edit on the site: chang
 
 ### Set it up (about five minutes, once)
 
-1. Go to [sheets.new](https://sheets.new) to make a blank Google Sheet, and give it a name, such as *Corpus planner*.
+1. Go to [sheets.new](https://sheets.new) to make a blank Google Sheet, and give it a name, such as *SIPs*.
 2. In the Sheet, open **Extensions → Apps Script**. Delete the code that's there, paste in the whole of [`sheets/Code.gs`](sheets/Code.gs) from this repository, and press **Save** (the disk icon). Don't edit the file; nothing in it needs changing.
 3. Make a secret. On the site, open **My portfolio**, find **Google Sheet**, and press **Make a new secret**. It fills the Secret box with a random 32-character value and copies it. Any long random string of 16 characters or more works too.
 4. Back in Apps Script, open **Project Settings** (the gear icon on the left). Under **Script Properties**, press **Add script property** (or **Edit script properties**, then **Add script property**). Enter `SECRET` as the property and paste the secret as the value, then press **Save script properties**. The secret lives here, never in the code, so `Code.gs` in this public repository stays free of it.
@@ -106,7 +111,7 @@ Connect the device that holds your real data first. When a device connects, its 
 - Changes go to the Sheet a second or two after you make them, and each device picks up the others' changes when you open or return to the site, and every 10 minutes while it's open. **Sync now** does it straight away.
 - If you're offline, changes wait on the device and go up at the next sync. The header shows **Sheet not updated** until they do.
 - When two devices change the same thing, the later change wins. Removing an investment removes it everywhere.
-- **Open the Sheet** in the Google Sheet section opens it. The Sheet also has a **Corpus planner** menu with *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, and *Erase the synced data*.
+- **Open the Sheet** in the Google Sheet section opens it. The Sheet also has a **SIPs** menu with *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, and *Erase the synced data*.
 - **Disconnect this device** stops syncing and keeps the data on the device and in the Sheet.
 
 ### After you change `Code.gs`
@@ -125,7 +130,7 @@ Paste the new version into Apps Script and save. Then choose **Deploy → Manage
 Every night the job downloads AMFI's `NAVAll.txt`, uses it and throws it away. The tracked funds' history is kept in GitHub's build cache, which is a scratch space GitHub may empty. Turn this on and the job also keeps copies in your own Google Drive:
 
 ```
-Corpus planner archive/
+SIPs archive/
   NAVAll/2026/09/NAVAll-2026-09-26.txt.gz     each night's file, exactly as AMFI served it
   NAV history/NAV history 2026-10-01/         the full history of every tracked fund, once a month
 ```
@@ -134,15 +139,15 @@ The site doesn't read these; they're your backup and a record of what AMFI publi
 
 It's a second, separate Apps Script, so the Sheet sync script stays limited to its one Sheet.
 
-1. Go to [script.google.com](https://script.google.com) and press **New project**. Name it *Corpus planner archive*. Delete the code that's there, paste in the whole of [`sheets/Archive.gs`](sheets/Archive.gs), and press **Save**.
+1. Go to [script.google.com](https://script.google.com) and press **New project**. Name it *SIPs archive*. Delete the code that's there, paste in the whole of [`sheets/Archive.gs`](sheets/Archive.gs), and press **Save**.
 2. Make a secret: any random string of 16 characters or more. It should be different from the Sheet sync's secret; the site's **Make a new secret** button works for this too.
 3. Open **Project Settings** (the gear icon). Under **Script Properties**, press **Add script property**. Enter `SECRET` as the property, paste the secret as the value, and press **Save script properties**.
 4. Press **Deploy → New deployment**. Next to **Select type**, press the gear and choose **Web app**. Set **Execute as** to **Me** and **Who has access** to **Anyone**, then press **Deploy**.
-5. Press **Authorize access**. Google asks to see and manage your Drive files, because this script saves files there, and warns that it hasn't verified the app. That's expected: press **Advanced → Go to Corpus planner archive (unsafe) → Allow**. Copy the **Web app URL**.
+5. Press **Authorize access**. Google asks to see and manage your Drive files, because this script saves files there, and warns that it hasn't verified the app. That's expected: press **Advanced → Go to SIPs archive (unsafe) → Allow**. Copy the **Web app URL**.
 6. In the GitHub repository, open **Settings → Secrets and variables → Actions** and press **New repository secret** twice:
    - Name `ARCHIVE_URL`, secret: the web app URL.
    - Name `ARCHIVE_SECRET`, secret: the same secret as step 3.
-7. Run the workflow once from the **Actions** tab. When it finishes, the folder **Corpus planner archive** is in your Drive with today's file and the first history copy.
+7. Run the workflow once from the **Actions** tab. When it finishes, the folder **SIPs archive** is in your Drive with today's file and the first history copy.
 
 The run's log says what was stored, and `meta.json` on the site has an `archive` section. If Drive can't be reached, the site is still built and published; the file for that night is simply missed.
 
@@ -169,6 +174,8 @@ Edit `pipeline/config.json`:
 | `verify_days` | How many recent days are re-checked against AMFI each night |
 | `mfapi_max_per_run` | Cap on history downloads per run, so the first backfill fits in a run |
 | `archive_snapshot_every_days` | How often the full NAV history goes to Google Drive (default 30) |
+| `benchmarks` | Which index fund stands in for each equity category's benchmark |
+| `check_links` | Whether to check the official websites each night (default on) |
 
 ## Tests
 
@@ -176,9 +183,10 @@ Edit `pipeline/config.json`:
 pip install -r pipeline/requirements-dev.txt
 python -m pytest pipeline/tests
 node --test sheets/tests/*.test.js    # both Apps Scripts (Sheet sync and Drive archive), against simulated Google services
+node --test tests/*.test.js           # the in-browser CAS reader, against a made-up statement
 ```
 
-The nightly workflow runs the pipeline tests before every build, and pull requests run both sets. If AMFI changes its format again in a way the parser can't handle, the build fails loudly rather than publishing wrong numbers, and yesterday's site stays up.
+The nightly workflow runs the pipeline tests before every build, and pull requests run all three sets. If AMFI changes its format again in a way the parser can't handle, the build fails loudly rather than publishing wrong numbers, and yesterday's site stays up.
 
 ## Limits
 
