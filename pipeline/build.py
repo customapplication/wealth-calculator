@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import shutil
 import sys
 import threading
@@ -37,8 +38,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import amfi  # noqa: E402
 import archive as drive  # noqa: E402
+import links as sitelinks  # noqa: E402
 import metrics  # noqa: E402
 import mfapi  # noqa: E402
+import schemedata  # noqa: E402
 from store import Store, dumps, encode  # noqa: E402
 
 log = logging.getLogger("build")
@@ -63,6 +66,25 @@ DEFAULT_CONFIG = {
     "mfapi_refresh_cycle_days": 30,
     "archive_snapshot_every_days": 30,
     "archive_part_bytes": 5_000_000,
+    "category_min_funds": 3,
+    "check_links": True,
+    # The comparison chart's default benchmark for each category: an index fund
+    # standing in for its index, because index values come from NSE, not AMFI.
+    # The Direct Growth plan with the longest history that matches `fund` (and
+    # not `not`) is used; a category with no match gets no benchmark.
+    "benchmarks": [
+        {"index": "Nifty 50", "categories": ["Large Cap Fund"],
+         "fund": r"nifty\s*50\s*index", "not": r"next|equal|value|quality|alpha|momentum|low vol"},
+        {"index": "Nifty Midcap 150", "categories": ["Mid Cap Fund"],
+         "fund": r"nifty\s*mid\s*cap\s*150\s*index", "not": r"quality|momentum|alpha|value|low vol"},
+        {"index": "Nifty Smallcap 250", "categories": ["Small Cap Fund"],
+         "fund": r"nifty\s*small\s*cap\s*250\s*index", "not": r"quality|momentum|alpha|value|low vol"},
+        {"index": "Nifty LargeMidcap 250", "categories": ["Large & Mid Cap Fund"],
+         "fund": r"nifty\s*large\s*mid\s*cap\s*250\s*index", "not": r"quality|momentum|alpha|value"},
+        {"index": "Nifty 500", "categories": ["Flexi Cap Fund", "Multi Cap Fund", "ELSS", "Focused Fund",
+                                              "Value Fund", "Contra Fund", "Dividend Yield Fund"],
+         "fund": r"nifty\s*500\s*index", "not": r"value|momentum|quality|equal|multi\s*cap|low vol|alpha"},
+    ],
 }
 
 
@@ -93,6 +115,18 @@ class Net:
     def mfapi(self, code: int):
         time.sleep(0.05)  # be polite to a free service
         return mfapi.fetch_history(self._session(), code)
+
+    def scheme_data(self) -> str:
+        return amfi._get(self._session(), schemedata.URL, params=schemedata.PARAMS, timeout=180, attempts=3)
+
+    def link_status(self, url: str):
+        """The HTTP status a site answers with, following redirects. Some sites refuse HEAD, so GET too."""
+        s = self._session()
+        r = s.head(url, headers=amfi.HEADERS, timeout=20, allow_redirects=True)
+        if r.status_code in (400, 403, 405, 501):
+            r = s.get(url, headers=amfi.HEADERS, timeout=20, allow_redirects=True, stream=True)
+            r.close()
+        return r.status_code
 
 
 def load_config(path: Path | None) -> dict:
@@ -216,6 +250,30 @@ def recent_gap(series: dict[date, float], end: date, days: int = 60) -> int:
     return max((b - a).days for a, b in zip(recent, recent[1:])) if len(recent) > 1 else 0
 
 
+def slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def pick_benchmarks(cfg: dict, active, first_nav: dict[int, date]) -> dict[str, dict]:
+    """{category: {"i": index name, "c": stand-in fund's code, "n": its name}} from cfg["benchmarks"]."""
+    index_funds = [s for s in active if "index fund" in s.category.lower() and s.plan == "Direct"
+                   and s.option == "Growth" and s.code in first_nav]
+    cats = sorted({s.category for s in active})
+    out: dict[str, dict] = {}
+    for b in cfg.get("benchmarks") or []:
+        want = re.compile(b["fund"], re.I)
+        skip = re.compile(b["not"], re.I) if b.get("not") else None
+        cands = [s for s in index_funds if want.search(s.name) and not (skip and skip.search(s.name))]
+        if not cands:
+            log.info("Benchmarks: no index fund found for %s", b["index"])
+            continue
+        best = min(cands, key=lambda s: (first_nav[s.code], s.code))
+        for cat in cats:
+            if any(cat.lower().endswith(c.lower()) for c in b["categories"]):
+                out[cat] = {"i": b["index"], "c": best.code, "n": best.name}
+    return out
+
+
 def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = None, archive=None) -> dict:
     started = time.time()
     today = today or datetime.now(IST).date()
@@ -253,6 +311,10 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
     log.info("Active open-ended schemes: %d; tracking history for %d", len(active), len(targets))
 
     store = Store(cache_dir)
+    # Launch dates from AMFI's scheme master (optional; the last good copy is kept)
+    master, master_status = (schemedata.load(net, cache_dir, today) if hasattr(net, "scheme_data")
+                             else ({}, {"ok": False, "error": "not fetched"}))
+    launch = schemedata.launches(master)
 
     # 1. Backfill older history from MFapi
     todo, pending_total = plan_backfill(targets, store, cfg, today)
@@ -278,6 +340,8 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
     corrections: list[dict] = []
     gaps: list[dict] = []
     weekly: dict[tuple[str, str], dict[int, tuple]] = defaultdict(dict)
+    fridays: dict[tuple[str, str], dict[int, tuple]] = defaultdict(dict)
+    first_nav: dict[int, date] = {}
     per_scheme: dict[int, dict] = {}
     full_count = gap_count = 0
 
@@ -308,6 +372,8 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
         m, wk = metrics.compute(series, cfg["risk_free_rate"], full)
         per_scheme[s.code] = m
         weekly[(s.category, s.plan)][s.code] = wk
+        fridays[(s.category, s.plan)][s.code] = metrics.weekly_navs(*metrics.arrays(series))
+        first_nav[s.code] = min(series)
 
         g = recent_gap(series, s.nav_date)
         if g > 5:
@@ -323,6 +389,23 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
         for code, share in metrics.consistency(group).items():
             per_scheme[code]["cons"] = share
 
+    # The typical fund in each category and plan, for the comparison chart
+    cat_out = out_dir / "cat"
+    if cat_out.exists():
+        shutil.rmtree(cat_out)
+    cat_out.mkdir(parents=True)
+    cats: dict[str, dict] = {}
+    for (category, plan), group in sorted(fridays.items()):
+        o, v, n = metrics.category_index(group, cfg["category_min_funds"])
+        if len(o) < 2:
+            continue
+        key = f"{category}|{plan}"
+        name = slug(f"{category} {plan}")
+        series_ = {date.fromordinal(int(d)): float(x) for d, x in zip(o, v)}
+        (cat_out / f"{name}.json").write_text(dumps(encode(key, series_)))
+        cats[key] = {"f": name, "n": n, "s": date.fromordinal(int(o[0])).isoformat()}
+    bench = pick_benchmarks(cfg, active, first_nav)
+
     archive_status = drive.archive_history(
         archive, archive_status, today, cache_dir, cfg,
         {"nav_date": max_date.isoformat(), "funds": len(targets), "with_full_history": full_count},
@@ -331,6 +414,8 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
     tracked = {s.code for s in targets}
     funds = []
     for s in active:
+        own, first = launch.get(s.code, (None, None))
+        extra = {k: v for k, v in (("l", own), ("L", first)) if v}
         funds.append({
             "c": s.code, "n": s.name, "a": s.amc,
             "g": s.category.partition(" - ")[0].strip(), "k": s.category,
@@ -339,8 +424,16 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
             "v": s.nav, "d": s.nav_date.isoformat(),
             "h": 1 if s.code in tracked else 0,
             "m": per_scheme.get(s.code),
+            **extra,
         })
-    (out_dir / "funds.json").write_text(dumps({"nav_date": max_date.isoformat(), "funds": funds}))
+    (out_dir / "funds.json").write_text(dumps({"nav_date": max_date.isoformat(), "funds": funds,
+                                              "cats": cats, "bench": bench}))
+
+    # Official websites: checked each night, never needed to publish
+    link_status: dict = {"ok": False, "error": "not checked"}
+    if cfg.get("check_links") and hasattr(net, "link_status"):
+        link_data, link_status = sitelinks.check(net, cfg.get("links") or sitelinks.load(), sorted({s.amc for s in active}), today)
+        (out_dir / "links.json").write_text(json.dumps(link_data, ensure_ascii=False))
 
     meta = {
         "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -368,6 +461,10 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
         "mfapi": mf_status,
         "recent_gaps": {"count": gap_count, "examples": gaps},
         "archive": archive_status,
+        "scheme_data": master_status,
+        "categories": {"written": len(cats), "min_funds": cfg["category_min_funds"]},
+        "benchmarks": {cat: f"{b['i']} via {b['c']} {b['n']}" for cat, b in bench.items()},
+        "links": link_status,
         "method": {
             "rolling_window_days": metrics.ROLL_DAYS,
             "max_lookup_gap_days": metrics.MAX_LOOKUP_GAP,

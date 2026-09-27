@@ -165,3 +165,49 @@ def consistency(group: dict[int, tuple[np.ndarray, np.ndarray]], min_funds: int 
         if mask.sum() >= min_weeks:
             out[c] = round(float(np.mean(mat[row, mask] > med[mask])), 4)
     return out
+
+
+def arrays(series: dict[date, float]) -> tuple[np.ndarray, np.ndarray]:
+    days = sorted(series)
+    return (np.fromiter((d.toordinal() for d in days), dtype=np.int64, count=len(days)),
+            np.fromiter((series[d] for d in days), dtype=np.float64, count=len(days)))
+
+
+def weekly_navs(ords: np.ndarray, navs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The NAV on each Friday: the last NAV on or before it, if within MAX_LOOKUP_GAP days."""
+    if len(ords) < 2:
+        return np.array([], dtype=np.int64), np.array([], dtype=np.float64)
+    first = int(ords[0]) + (FRIDAY - int(ords[0]) % 7) % 7
+    fridays = np.arange(first, int(ords[-1]) + 1, 7, dtype=np.int64)
+    idx = np.searchsorted(ords, fridays, side="right") - 1
+    ok = (idx >= 0) & (fridays - ords[np.clip(idx, 0, None)] <= MAX_LOOKUP_GAP)
+    return fridays[ok], navs[idx[ok]]
+
+
+def category_index(group: dict[int, tuple[np.ndarray, np.ndarray]], min_funds: int = 3,
+                   base: float = 100.0) -> tuple[np.ndarray, np.ndarray, int]:
+    """The typical fund in a category, week by week: the median of its funds' weekly
+    returns, chained from `base`. It starts on the first week with at least
+    `min_funds` funds and ends on the last such week. Returns (fridays, values, funds)."""
+    empty = (np.array([], dtype=np.int64), np.array([], dtype=np.float64), 0)
+    codes = [c for c, (o, _) in group.items() if len(o) >= 2]
+    if len(codes) < min_funds:
+        return empty
+    all_days = np.unique(np.concatenate([group[c][0] for c in codes]))
+    pos = {int(d): i for i, d in enumerate(all_days)}
+    mat = np.full((len(codes), len(all_days)), np.nan)
+    for row, c in enumerate(codes):
+        o, v = group[c]
+        mat[row, [pos[int(d)] for d in o]] = v
+    rets = mat[:, 1:] / mat[:, :-1] - 1.0          # week j to week j+1; nan where either is missing
+    counts = np.sum(~np.isnan(rets), axis=0)
+    full = np.flatnonzero(counts >= min_funds)
+    if not len(full):
+        return empty
+    start, end = int(full[0]), int(full[-1])
+    vals = [base]
+    for j in range(start, end + 1):
+        col = rets[:, j]
+        r = float(np.nanmedian(col)) if counts[j] else 0.0
+        vals.append(vals[-1] * (1.0 + r))
+    return all_days[start:end + 2], np.round(np.array(vals), 4), len(codes)

@@ -19,5 +19,9 @@
   "mfapi_refresh_cycle_days": 30,
   "_archive": "Google Drive copies (sheets/Archive.gs): how often the full NAV history goes up, and the size of each part.",
   "archive_snapshot_every_days": 30,
-  "archive_part_bytes": 5000000
+  "archive_part_bytes": 5000000,
+  "_benchmarks": "Each equity category's default benchmark (an index fund standing in for its index) is set in DEFAULT_CONFIG in pipeline/build.py. To change one, copy the whole benchmarks list here and edit it.",
+  "category_min_funds": 3,
+  "_check_links": "Check the official websites in pipeline/links.json each night.",
+  "check_links": true
 }
