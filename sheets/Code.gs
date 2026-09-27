@@ -212,7 +212,7 @@ function withLock_(fn) {
 
 function ping_() {
   var acct = account_();
-  return { ok: true, app: APP, version: VERSION, epoch: epoch_(), sheetUrl: book_().getUrl(), now: Date.now(),
+  return { ok: true, app: APP, version: VERSION, epoch: epoch_(), now: Date.now(),
            account: !!acct, user: acct ? acct.user : null };
 }
 
@@ -303,7 +303,7 @@ function waitText_(sec) {
   return m >= 90 ? Math.round(m / 60) + ' hours' : m + (m === 1 ? ' minute' : ' minutes');
 }
 function signedIn_(acct, tok, extra) {
-  var out = { ok: true, app: APP, version: VERSION, session: tok, user: acct.user, epoch: epoch_(), sheetUrl: book_().getUrl(), now: Date.now() };
+  var out = { ok: true, app: APP, version: VERSION, session: tok, user: acct.user, epoch: epoch_(), now: Date.now() };
   for (var k in extra || {}) out[k] = extra[k];
   return out;
 }
@@ -582,7 +582,10 @@ function REMOVE_LOGIN() {
  * hasn't seen.
  *
  * Request  { epoch, since, changes: [{ c, id, at, del, data }] }
- * Response { ok, epoch, resync, cursor, changes: [...], rejected: [...], refused: [...], now, sheetUrl }
+ * Response { ok, epoch, resync, cursor, changes: [...], rejected: [...], refused: [...], now }
+ *
+ * The Sheet's own address is never sent: family members sign in to the site,
+ * and only the Sheet's owner opens the Sheet.
  *
  * A change is kept only if its `at` is newer than the stored one. Otherwise the
  * stored record goes back in `rejected`, so the device replaces its copy and
@@ -639,7 +642,6 @@ function sync_(body) {
   }
   res.cursor = rev;
   res.now = Date.now();
-  res.sheetUrl = book_().getUrl();
   return res;
 }
 

@@ -165,7 +165,7 @@ Connect the device that holds your real data first. When a device connects, its 
 - If you're offline, changes wait on the device and go up at the next sync. Home shows **Sheet not updated** until they do.
 - Your investments, goals, plan and benchmark choices sync. Chart types, filters and which page you were on stay on each device.
 - When two devices change the same thing, the later change wins. Removing an investment removes it everywhere.
-- **Open the Sheet** in the Google Sheet panel opens it. The Sheet also has a **SIPs** menu: *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, *Keep the nightly data update running* (and *Check it now*, *Stop the daily check*), *Sign out every device*, *Remove the login*, and *Erase the synced data*.
+- The app never links to the Sheet or shows its address: family members sign in to the app, and only you, the Sheet's owner, open the Sheet (from your Google Drive). The Sheet has a **SIPs** menu: *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, *Keep the nightly data update running* (and *Check it now*, *Stop the daily check*), *Sign out every device*, *Remove the login*, and *Erase the synced data*.
 - **Disconnect this device** stops syncing and keeps the data on the device and in the Sheet.
 
 ### After you change `Code.gs`

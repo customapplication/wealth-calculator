@@ -35,12 +35,13 @@ test('refuses every request until SECRET is set, and a wrong or missing secret',
   assert.equal(g.lock.held, 0);
 });
 
-test('ping answers with the epoch and the Sheet URL', () => {
+test("ping answers with the epoch, and never the Sheet's address", () => {
   const g = setup();
   const r = g.post({ secret: SECRET, action: 'ping' });
   assert.equal(r.ok, true);
   assert.match(r.epoch, /^e[0-9a-z]{8,}$/);
-  assert.equal(r.sheetUrl, 'https://docs.google.com/spreadsheets/d/TEST-SHEET/edit');
+  assert.ok(!JSON.stringify(r).includes('docs.google.com'), 'no link to the Sheet');
+  assert.ok(!JSON.stringify(g.sync({ epoch: null, since: 0, changes: [] })).includes('docs.google.com'), 'nor in a sync');
   assert.equal(r.version, 3);
   assert.equal(r.account, false, 'no login yet');
 });

@@ -125,6 +125,7 @@ site/vendor/         Chart.js 4.4.1 and PDF.js 5.4.624 (legacy build, .mjs renam
   - Server: one row per record in the hidden `_data` tab, JSON split over 8 cells of 45,000 characters, each piece marked `~` and written as plain text. `rev` in Script Properties is a cursor for incremental pulls. `epoch` changes on erase, which makes devices resync and push what they hold.
   - The plan's `tab`, `chartMode` and `valueMode` stay per device. The edited engine source isn't synced; it's code, and it stays on the device that wrote it.
   - On connect, what the device already holds is stamped `at = 1`, so data already in the Sheet wins. An untouched (default) plan is never sent.
+  - The Sheet's own address is never sent to devices or shown in the app (owner's decision, 27 Sep 2026: family members use the app, only the owner opens the Sheet). sync.js drops any `sheetUrl` saved by older versions.
   - The `SECRET` lives in Script properties, never in `Code.gs`. The URL and secret live only in `mf-sync:v1`. Readable tabs (Portfolio, Investments, Transactions, Plan) are rebuilt after every write; strings pass through `text_()` against formula injection.
   - `Code.gs` VERSION 2 (Sep 2026) added Fund house and Goal to the Investments tab and named the menu SIPs. `Archive.gs` renames a *Corpus planner archive* folder to *SIPs archive* rather than starting a new one.
   - `Code.gs` VERSION 3 (27 Sep 2026): the login and the fund data update.
