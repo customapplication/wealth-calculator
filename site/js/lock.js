@@ -424,7 +424,7 @@ window.Lock = (() => {
         const code = newRecoveryCode();
         const [rec, keys, newRec] = await Promise.all([recoveryProof(u, answers, f.code.value), passwordKeys(u, f.p1.value), recoveryProof(u, answers, code)]);
         const r = await callScript(url, { action: 'recover', user: keys.user, rec, newAuth: keys.auth, newRec, device: deviceName() });
-        await onDone({ keys, session: r.session, code, url });
+        await onDone({ keys, session: r.session, code, url, r });
       } catch (err) { msg(err.message, true); }
       finally { btn.disabled = false; }
     });
@@ -561,9 +561,12 @@ window.Lock = (() => {
   }
 
   /** After signing in, or a new password: the password's copy of the data key follows it. */
-  async function rewrap(keys) {
+  /** The password copy of the data key, for keys.user. For another person, the last one's PIN and fingerprint go too. */
+  async function rewrap(keys, newPerson) {
     if (!meta || !dataBytes) return;
-    meta = readMeta(); meta.user = keys.user; meta.pw = await seal(keys.data, dataBytes); writeMeta(meta);
+    meta = readMeta(); meta.user = keys.user; meta.pw = await seal(keys.data, dataBytes);
+    if (newPerson) { meta.pin = null; meta.bio = null; meta.tries = 0; }
+    writeMeta(meta);
   }
   function setAfter(min) { if (!meta) return; meta = readMeta(); meta.after = min; writeMeta(meta); idleSince = Date.now(); }
   function removeBio() { if (!meta) return; meta = readMeta(); meta.bio = null; writeMeta(meta); }

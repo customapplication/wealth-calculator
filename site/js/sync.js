@@ -18,7 +18,7 @@ window.Sync = (() => {
 
   // hold: 'login' when the Sheet wants this device to sign in, 'secret' when its login was removed.
   function fresh(over) {
-    return Object.assign({ url: '', secret: '', session: '', user: '', version: 0, account: false, hold: '', out: false,
+    return Object.assign({ url: '', secret: '', session: '', user: '', role: '', version: 0, account: false, hold: '', out: false,
       epoch: null, cursor: 0, skew: 0, docs: {}, snap: null, lastOk: 0, lastError: '' }, over);
   }
   // The Sheet's own address was kept here before; the app no longer holds or shows it.
@@ -318,19 +318,65 @@ window.Sync = (() => {
   async function signIn(url, keys) {
     url = checkUrl(url);
     const r = await post(url, {}, { action: 'login', user: keys.user, auth: keys.auth, device: window.Lock.deviceName() });
+    return enter(url, r, keys);
+  }
+
+  /** Join with the owner's invite. fields: { invite, user, auth, rec, questions }. Answers { r }; enter() starts syncing. */
+  async function join(url, fields) {
+    url = checkUrl(url);
+    return post(url, {}, Object.assign({ action: 'join', device: window.Lock.deviceName() }, fields));
+  }
+
+  /*
+   * Whose data is on this device. Once it has synced with a Sheet, it holds that
+   * person's copy (the secret, before any login, means the owner's). Signing in
+   * as someone else must not send it into their profile, so it goes first.
+   */
+  function otherPerson(url, r) {
+    if (!S.url || !(S.user || S.secret || S.session || S.hold || S.out)) return false;
+    if (S.url !== url) return true;
+    return S.user ? S.user !== r.user : r.role !== 'owner';
+  }
+
+  /** Signed in (or joined, or recovered) as r.user: carry on, start syncing, or switch this device to that person. */
+  async function enter(url, r, keys) {
+    if (otherPerson(url, r)) {
+      const was = S.user || "the Sheet owner";
+      if (!window.confirm(`This device holds ${was}'s investments and plan. Signing in as ${r.user} removes them from this device first; they stay in the Sheet. Carry on?`)) {
+        post(url, { session: r.session }, { action: 'logout' }).catch(() => {});
+        throw new Error(`Not signed in. This device still holds ${was}'s data.`);
+      }
+      return switchPerson(url, r, keys);
+    }
     if (S.url === url && S.epoch && !S.out) {
-      Object.assign(S, { session: r.session, secret: '', user: r.user, account: true, hold: '', lastError: '', version: r.version || S.version });
+      Object.assign(S, { session: r.session, secret: '', user: r.user, role: r.role || '', account: true, hold: '', lastError: '', version: r.version || S.version });
       persist(); render();
       if (window.Lock) window.Lock.noteSheet(url);
       await run();
       return 'Signed in.';
     }
-    return 'Signed in. ' + await begin({ url, session: r.session, account: true }, r);
+    return 'Signed in. ' + await begin({ url, session: r.session, account: true, role: r.role || '' }, r);
+  }
+
+  /** Another person on this device: their copy replaces the last one's, from the Sheet, after a reload. */
+  async function switchPerson(url, r, keys) {
+    clearTimeout(timer);
+    S = fresh({ url, session: r.session, user: r.user, role: r.role || '', account: true, version: r.version || 0 });
+    persist();
+    ['mf-portfolio:v1', 'corpus-planner:v1', 'mf-bench:v1'].forEach(k => store.del(k));
+    if (window.Lock) {
+      // The lock is now this person's: their password opens it, then they choose their own PIN.
+      if (window.Lock.on() && keys) { await window.Lock.rewrap(keys, true); window.Lock.noteSheet(url); }
+      else if (window.Lock.on()) window.Lock.eraseDevice();
+      await window.Lock.flush();
+    }
+    location.reload();
+    return `Signed in as ${r.user}. Loading their data…`;
   }
 
   /** After making the login, or recovering it: this device carries on with a session instead of the secret. */
-  function useSession(session, user) {
-    Object.assign(S, { session, user, secret: '', account: true, hold: '', out: false, lastError: '' });
+  function useSession(session, user, role) {
+    Object.assign(S, { session, user, role: role || S.role || '', secret: '', account: true, hold: '', out: false, lastError: '' });
     persist(); render();
     if (window.Lock) window.Lock.noteSheet(S.url);
   }
@@ -396,7 +442,7 @@ window.Sync = (() => {
       if (!$('#syncMsg').textContent) msg(S.lastError, true);
     }
     const who = $('#syncWho');
-    if (who) { who.hidden = !(on && S.session); who.textContent = S.session ? `Signed in as ${S.user}. Manage the login and devices under Security.` : ''; }
+    if (who) { who.hidden = !(on && S.session); who.textContent = S.session ? `Signed in as ${S.user}${S.role === 'member' ? ', a family member' : S.role === 'owner' ? ', the owner' : ''}. Manage the login, devices${S.role === 'owner' ? ' and family' : ''} under Security.` : ''; }
     const note = $('#pfBackupNote');
     if (note) note.textContent = on
       ? 'Your portfolio is saved in this browser and in your Google Sheet. The site itself never includes it.'
@@ -424,6 +470,7 @@ window.Sync = (() => {
       $('#syncSecretBox').hidden = which !== 'secret';
       $('#syncLoginBox').hidden = which !== 'login';
       $('#syncRec').hidden = which !== 'rec';
+      $('#syncJoin').hidden = which !== 'join';
       $('#syncNext').hidden = !!which;
     };
     $('#syncUrl').addEventListener('input', () => { if (!S.hold) showBoxes(''); });
@@ -461,6 +508,12 @@ window.Sync = (() => {
       } catch (err) { msg(err.message, true); $('#syncPass').select(); }
       finally { btn.disabled = false; }
     });
+    $('#syncJoinBtn').addEventListener('click', () => {
+      let url;
+      try { url = checkUrl($('#syncUrl').value); } catch (e) { msg(e.message, true); return; }
+      showBoxes('join'); msg('');
+      if (window.Security) window.Security.joinForm($('#syncJoin'), { url, onCancel: () => showBoxes('login') });
+    });
     $('#syncForgot').addEventListener('click', () => {
       let url;
       try { url = checkUrl($('#syncUrl').value); } catch (e) { msg(e.message, true); return; }
@@ -468,13 +521,10 @@ window.Sync = (() => {
       window.Lock.recoveryForm($('#syncRec'), {
         url, user: $('#syncUser').value || S.user,
         onCancel: () => showBoxes('login'),
-        onDone: async ({ keys, session, code }) => {
-          S = fresh({ url, session, user: keys.user, account: true });   // everything else comes back from the Sheet
-          persist();
+        onDone: async ({ keys, code, r }) => {
           window.Lock.showCode($('#syncRec'), code, async () => {
             showBoxes(''); msg('Your new password is set. Syncing…');
-            emit('mf:account', { signedIn: true, keys, recovered: true });
-            try { msg('Signed in. ' + await begin({ url, session, account: true, user: keys.user }, { account: true, user: keys.user })); } catch (err) { msg(err.message, true); }
+            try { msg(await enter(url, r, keys)); emit('mf:account', { signedIn: true, keys, recovered: true }); } catch (err) { msg(err.message, true); }
           });
         }
       });
@@ -527,8 +577,8 @@ window.Sync = (() => {
   if (connected()) schedule(0);
 
   return {
-    connected, run, connect, disconnect, makeSecret, hello, signIn, useSession, signOutHere, call, callOpen,
+    connected, run, connect, disconnect, makeSecret, hello, signIn, join, enter, useSession, signOutHere, call, callOpen, checkUrl,
     status: () => ({ busy, lastOk: S.lastOk, lastError: S.lastError, waiting: waiting(), url: S.url, version: S.version, account: S.account,
-                     session: !!S.session, secret: !!S.secret, user: S.user, hold: S.hold, out: S.out })
+                     session: !!S.session, secret: !!S.secret, user: S.user, role: S.role, hold: S.hold, out: S.out })
   };
 })();

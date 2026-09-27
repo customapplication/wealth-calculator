@@ -27,7 +27,7 @@ test('hello says only whether there is a login, and needs nothing', () => {
   assert.equal(load({}).post({ action: 'hello' }).setup, true);
   const g = setup();
   let r = g.post({ action: 'hello' });
-  assert.deepEqual([r.ok, r.version, r.account, r.setup], [true, 3, false, false]);
+  assert.deepEqual([r.ok, r.version, r.account, r.setup], [true, 4, false, false]);
   g.register();
   r = g.post({ action: 'hello' });
   assert.equal(r.account, true);
@@ -74,7 +74,9 @@ test('signing in: the right name and password, 5 wrong tries pause it, and a rig
   }
   assert.match(r.error, /1 more try/);
   r = g.post({ action: 'login', user: 'someone else', auth: acct.auth });
-  assert.equal(r.badLogin, true, 'a wrong name counts too');
+  assert.equal(r.badLogin, true, 'a name that does not exist is refused the same way');
+  assert.equal(r.wait, 0, "and counted apart, so it doesn't use up this person's tries");
+  r = g.post({ action: 'login', user: 'family account', auth: proof() });
   assert.ok(r.wait > 14 * 60 && r.wait <= 15 * 60, 'the fifth wrong try pauses logins for 15 minutes');
   r = g.post({ action: 'login', user: 'family account', auth: acct.auth });
   assert.equal(r.ok, false, 'even the right password waits');
@@ -82,14 +84,15 @@ test('signing in: the right name and password, 5 wrong tries pause it, and a rig
   assert.equal(g.post({ action: 'sync', session: phone }).ok, true, 'devices already signed in carry on');
 
   const guard = JSON.parse(g.properties.getProperty('guard'));
-  guard.login.until = Date.now() - 1;
+  const k = 'login:family account';
+  guard[k].until = Date.now() - 1;
   g.properties.setProperty('guard', JSON.stringify(guard));
   r = g.post({ action: 'login', user: 'family account', auth: proof() });
   assert.ok(r.wait > 29 * 60 && r.wait <= 30 * 60, 'the next wrong try pauses twice as long');
-  guard.login.until = Date.now() - 1; guard.login.n = 5;
+  guard[k].until = Date.now() - 1; guard[k].n = 5;
   g.properties.setProperty('guard', JSON.stringify(guard));
   assert.equal(g.post({ action: 'login', user: 'family account', auth: acct.auth }).ok, true);
-  assert.equal(JSON.parse(g.properties.getProperty('guard')).login, undefined, 'the count is cleared');
+  assert.equal(JSON.parse(g.properties.getProperty('guard'))[k], undefined, 'the count is cleared');
 });
 
 test('forgot the password: the answers and recovery code set a new one, once, and sign out every device', () => {

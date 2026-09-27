@@ -10,7 +10,7 @@ Read this first in every session. It records what this project is, how it's buil
 - **Explore funds** (`site/js/explore.js`): rank any mix of SEBI categories and picked funds by a chosen measure, computed from AMFI NAVs, with Direct/Regular/both, top N, years running and fund house filters. Tick up to 5 funds to compare.
 - **Compare** (`site/js/compare.js`, reached from Explore): growth of ₹10,000, the category's typical fund and a benchmark the owner can change.
 - **Plan** (`site/js/planner.js`): SIP, step-up SIP and SWP calculator, shown as an editable sentence, with an editable calculation engine.
-- **Google Sheet sync** (`site/js/sync.js` + `sheets/Code.gs`): optional. Keeps the plan and portfolio in a Sheet the owner owns, and in step across devices. From Code.gs v3, a login (name and password) replaces the secret, with per-device sessions.
+- **Google Sheet sync** (`site/js/sync.js` + `sheets/Code.gs`): optional. Keeps the plan and portfolio in a Sheet the owner owns, and in step across devices. From Code.gs v3, a login (name and password) replaces the secret, with per-device sessions. From v4, family profiles: the owner invites members, each with their own login and portfolio in the same Sheet.
 - **Lock** (`site/js/lock.js` + `site/js/security.js`): a 6-digit PIN per device, the password, and fingerprint or face (passkey PRF) open the site; personal storage is encrypted at rest; auto-lock after N minutes away.
 - **Fund data update** (`site/js/update.js`, through Code.gs): "Update now" re-enables and dispatches the nightly GitHub workflow with a token held in the script's properties; an optional daily Apps Script trigger does the same when GitHub pauses it.
 - **Drive archive** (`pipeline/archive.py` + `sheets/Archive.gs`): optional. The nightly job keeps each day's NAVAll.txt and a monthly copy of the NAV history in the owner's Google Drive.
@@ -33,6 +33,7 @@ Read this first in every session. It records what this project is, how it's buil
   - Fund house, MF Central, CAMS and KFintech links, plus in-app CAS import. No PAN-based fetch, since no legal free API exists.
   - The statement import keeps the whole folio, the nominees' names, registrar, ARN/DIRECT, KYC and PAN status (never the PAN), demat, statement cost and value, and the exit load wording (owner asked, 27 Sep 2026). Name, PAN, email, phone, address and bank never.
   - A fetch button so a paused nightly workflow doesn't leave the data stale: done through the Sheet's script (GitHub token in Script properties), plus an optional daily check.
+  - Separate profiles in one Sheet (owner asked, 27 Sep 2026): up to 8 people, each with their own login, portfolio, plan and benchmarks, and each sees only their own in the app. The owner sees everyone's in the Sheet (Member column). Chosen over a Sheet per person.
 - Google Sheets goes through an Apps Script web app bound to the Sheet, the same pattern as the owner's other apps: no Google Cloud project, no OAuth client, nothing to renew. The owner chose this over Google Identity Services. Every request carries a secret, so it isn't an open URL.
 
 ## Layout
@@ -53,7 +54,8 @@ tests/cas.test.js    node:test for site/js/cas.js against a made-up statement la
 sheets/Code.gs       Apps Script sync backend, pasted into the owner's Sheet unchanged (@OnlyCurrentDoc)
 sheets/Archive.gs    Apps Script Drive archive, a separate standalone project (needs Drive scope, so kept apart)
 sheets/tests/        node:test against fake-google.js, an in-memory SpreadsheetApp/DriveApp/Properties/Lock/Content/UrlFetch/ScriptApp
-                     code.test.js (sync), login.test.js (login, recovery, devices, GitHub update), archive.test.js
+                     code.test.js (sync), login.test.js (login, recovery, devices, GitHub update),
+                     profiles.test.js (v4 family profiles), archive.test.js
 site/                static site: index.html, manifest.webmanifest, icons/, css/app.css,
                      js/{common,lock,planner,explore,compare,cas,portfolio,sync,security,update,app}.js
 site/vendor/         Chart.js 4.4.1 and PDF.js 5.4.624 (legacy build, .mjs renamed .js), served by the site itself; see its README
@@ -86,7 +88,7 @@ site/vendor/         Chart.js 4.4.1 and PDF.js 5.4.624 (legacy build, .mjs renam
 - `planner.js` came from a self-contained calculator. All its selectors are scoped to `#view-plan`. Don't reuse its IDs, or `data-key` / `data-focus` attributes, on other pages.
 - Script order: index.html loads only `common.js` and `lock.js`. lock.js shows the lock screen if `mf-lock:v1` exists, and once unlocked (or straight away) appends planner, explore, compare, cas, portfolio, sync, security, update, app with `async=false`. An inline head script adds `html.locked` before paint, so nothing of the app shows while locked.
 - Shell (`app.js`): views `home portfolio explore compare plan` (Compare highlights Explore in the nav). Forms live in panels (`.panel`, `role=dialog`): `panelImport`, `panelAdd`, `panelSheet`, `panelBench`, and the plan's `planRail`. `[data-open-panel="<id>"]` (optional `data-focus-sel`) opens one, `[data-panel-close]`, the scrim and Esc close it; focus is trapped, then returns to the opener (or, if it was redrawn, to the element with its id or `data-focus`). `window.Shell.openPanel(id, focusSel)`, `closePanel()`, `isOpen(id)`; the old `openDrawer`/`closeDrawer` still work.
-- Cross-page events on `document`: `mf:view` {view}, `mf:theme`, `mf:add-sip` {code}, `mf:picks` {list} (funds ticked to compare, `window.Picks`), `mf:panel` {id, open}, `mf:storage` {key}, `mf:account` {signedIn, keys, hold} (sync.js to security.js).
+- Cross-page events on `document`: `mf:view` {view}, `mf:theme`, `mf:add-sip` {code}, `mf:picks` {list} (funds ticked to compare, `window.Picks`), `mf:panel` {id, open}, `mf:storage` {key}, `mf:account` {signedIn, keys, hold, joined, recovered} (sync.js to security.js).
 - Panels also include `panelSecurity` (rendered by security.js into `#secBody`) and `panelData` (update.js). Home has `#dataStale` (data over 30 h old) and `#acctNote` (sign in / signed out). `window.Planner.addRate(pct)` adds a return rate to the planner.
 - Storage goes through `MF.store` (planner.js uses it too). With the lock on, every `corpus-planner:*` and `mf-*` key except `corpus-planner:theme` and `mf-lock:v1` is stored as `enc1:` + base64url(iv ‖ AES-GCM ciphertext) under the device's data key, and read from memory once unlocked (`store.useVault`). Cross-tab changes arrive as `mf:storage` {key} (decrypted first): listen with `MF.onStorage`, never `window` 'storage'. `store.raw` bypasses the vault.
 - localStorage keys: `mf-lock:v1` (plain: user, the data key wrapped by PIN / password / passkey PRF, PIN tries, auto-lock minutes, the Sheet URL for recovery while locked), `corpus-planner:v1`, `corpus-planner:engine`, `corpus-planner:theme`, `corpus-planner:view`, `mf-explore:v1` (cats, funds, plan, metric, top, age, amc, sel, range, cmp), `mf-compare:v1` (range, anchor), `mf-bench:v1` ({cat: {category: [codes]}, fund: {code: [codes]}}), `mf-portfolio:v1`, `mf-portfolio:v1:view` (scope, mode, group, range), `mf-sync:v1` (the Sheet URL, secret or session, user, version, hold, cursor and per-record sync state), `mf-charts:v1` (chosen chart types: plan, planMix, pfTime, pfMix, pfMixBy, exFund, exList). The `corpus-planner:*` and `mf-*` names stay, so nothing already saved is lost.
@@ -135,12 +137,27 @@ site/vendor/         Chart.js 4.4.1 and PDF.js 5.4.624 (legacy build, .mjs renam
     - Signed-in actions: `devices`, `signOut` {which: 'others' | id prefix}, `logout`, `changePassword` {auth, newAuth, others}, `newRecovery` {auth, questions, rec}, `dataStatus` {repo}, `dataRefresh` {repo}.
     - `dataRefresh` enables the workflow (any disabled state) and dispatches `nightly.yml` on `main`, unless a run is going or started under 10 minutes ago. `checkNightly()` (daily trigger from the menu) enables only `disabled_inactivity`, and dispatches only when the last success is over 26 h old.
     - Menu: Keep the nightly data update running / Check it now / Stop the daily check, Sign out every device, Remove the login (back to the secret).
+  - `Code.gs` VERSION 4 (27 Sep 2026): family profiles. No new permissions.
+    - Accounts are one Script property each, `acct:<user>` {user, role 'owner' | 'member', auth, rec, q, created}. `accounts_()` moves v3's `account` to `acct:<user>` as the owner. The first login (`register`) is the owner. At most 8 people (`MAX_PROFILES`).
+    - Data: the owner's records keep their v3 keys (`holdings/x`); a member's are `@<user>|holdings/x` (`keyOf_`, `memberOf_`; names can't hold `|`). `sync_(body, who)` reads and writes only `who.member` (the owner's is ''), so two people can use the same ids. `epoch` stays Sheet-wide.
+    - Sessions `{sha256(token): {u, n, c, s}}`: 12 per person, 40 in all. `auth_` answers {session, user, role, member}; the secret, while no login exists, is the owner.
+    - Guards are per name: `login:<user>`, `login:?` (unknown names), `recover:<user>`, `join:?`. A wrong name no longer pauses the real user's logins.
+    - Open action `join` {invite, user, auth, rec, questions, device}: an invite is 10 Crockford base32 characters (shown XXXXX-XXXXX), stored as its sha256 in `invites` {hash: {exp, by}}, used once, good for 7 days, at most 5 open.
+    - Owner-only actions (`ownerOnly_`, else `notOwner: true`): `members` (people, device counts, last seen, open invites, `kept`), `invite` {user?}, `cancelInvites`, `removeMember` {user, erase}. Removing drops the login and sessions; the records stay unless `erase`. The owner can't be removed from the site.
+    - Kept names (`kept_`): live records under `@<user>|` with no `acct:<user>` (removed members, or everyone after Remove the login). Only an invite made for that name (`invite` {user}, stored with `user`) can join as it; a plain invite, or `register`, can't take a kept name. `removeMember` {user, erase: true} erases a kept name's records.
+    - `devices`, `signOut`, `changePassword`, `newRecovery` and recovery act on the caller's own sessions only.
+    - Readable tabs: with more than one person (members, or a removed member's kept records), every tab starts with a Member column, Plan has a column per person, and Portfolio adds a per-person total and a Family total (its XIRR blank: the tab lacks the cash flows). With only the owner, the tabs keep the v3 layout.
+    - Menu: Sign out every device and Remove the login act on everyone (every `acct:*`, sessions, guards and invites); the data stays.
 - Keys (lock.js; the same derivation on every device):
   - user = trimmed, lower case, single spaces. master = PBKDF2-SHA256(password, "SIPs login v1|" + user, 600,000). auth = HKDF(master, "SIPs auth") as base64url, sent to the script. data = HKDF(master, "SIPs data"), an AES-GCM key that wraps the device's random 32-byte data key and never leaves the device.
   - recovery proof = HKDF(PBKDF2(answers + "\n" + code, "SIPs recovery v1|" + user), "SIPs recovery"). Answers keep only letters and digits, lower case. The code is 20 characters of Crockford base32 (shown XXXXX-XXXXX-XXXXX-XXXXX), used once: `recover` sets a new one.
   - PIN key = PBKDF2(PIN, random 16-byte salt, 600,000). 5 wrong PINs delete the PIN copy. Passkey key = HKDF(PRF output, "SIPs biometric"); offered only when the platform authenticator reports PRF.
   - A password that doesn't open the local copy but that the Sheet accepts (changed or recovered elsewhere) rebuilds the device: its encrypted keys are deleted, a new data key is made, and sync pulls everything back.
   - Sign-out semantics: on `signedOut`, sync.js resets its state first (so nothing is read as a deletion), removes the portfolio, plan and bench keys, and reloads; the Sheet keeps everything.
+- Family profiles on the site:
+  - A device holds one person's copy. `Sync.enter(url, r, keys)` follows every login, join and recovery. If `otherPerson(url, r)` (another Sheet, another user, or a secret-mode device, which is the owner's, signing in as a member), it asks first, then `switchPerson`: fresh sync state, the portfolio/plan/bench keys removed, the lock rewrapped for the new person with the last person's PIN and passkey copies dropped (`Lock.rewrap(keys, true)`), and a reload. The new person opens it with their password and chooses their own PIN. Otherwise it carries on, or `begin()`s for a device never connected.
+  - Invite link: `<site>#join=<base64url(web app URL)>.<10-character code>`. security.js reads it, puts `#home` back in the address bar, and opens the Sheet panel with the join form (`Security.joinForm`). The Sheet panel's login box also has "Join with an invite" for a typed code. The link carries the web app URL, never the Sheet's address.
+  - Security shows Family (owner only): members with device counts, kept names with Invite again and Erase, Add a family member (link + code, copy button), Cancel unused invites, and Remove (optionally erasing). "Your login" names the role.
 - Design (from the owner-approved mockups, including the PIN lock screen): Anek Latin for figures and headings, IBM Plex Sans for text, Plex Mono only for code (Google Fonts, with fallbacks). Indigo `--accent` #2E44B2 on a #F2F3F7 background with white cards, the validated c1–c6 series colours, crimson for losses and withdrawals. The chart code still reads the older names (`--muted`, `--rule`, `--stamp`, `--wd`, `--cond`…), which are aliases of the new tokens. Sentence case everywhere, no all-caps labels, plain active-voice copy. Keep light/dark tokens in sync; both themes exist.
 
 ## How to test
@@ -164,6 +181,16 @@ The lock and the login (27 Sep 2026) were tested the same way, with Code.gs v3 o
 - Making the login on a secret-connected device, a secret-only device asked to sign in (keeping its data), a new phone signing in and choosing a PIN, the devices list, signing out every other device (the signed-out device's copy removed, the Sheet untouched).
 - Recovery from the lock screen, then a device signed out by it opening with the new password from its lock screen and resyncing; the old recovery code refused.
 - Update now: the stale banner, a paused workflow switched on and dispatched, the run followed to success.
+
+Family profiles (27 Sep 2026) were tested the same way, with Code.gs v4:
+- The owner connects with the secret, makes the login and makes an invite link. Asha opens it on a phone (dark), joins, chooses a PIN and adds a fund.
+- Each person sees only their own funds, and the Investments tab has the Member column.
+- The owner's secret-mode device, asked to sign in, is taken over by Asha after the confirm; none of the owner's funds reach Asha's profile.
+- Ravi joins with a typed code. The owner removes him and keeps his data: his device is signed out and emptied, and Family lists him with Invite again. That invite refuses another name, and Ravi, joining with his own, gets his fund back.
+- The owner removes Ravi again, with erase: his rows leave the Sheet, and his device is signed out and emptied.
+- An unused invite is cancelled and then refused.
+- The owner's PIN-locked device is signed out and handed to Asha. The owner's PIN copy is gone, the owner's password doesn't open it, and Asha's password and her own new PIN do.
+- No password, answer or invite code is kept in the script's properties.
 
 The rebuilt UI (27 Sep 2026) was tested the same way, on synthetic data, at 1440px light and 390px dark:
 - Statement PDFs: one without a password imports at once; a locked one asks, explains a wrong password, then merges (the same statement twice adds nothing).
@@ -199,7 +226,8 @@ The owner's 9-point request of 27 Sep 2026, in this order (each its own change):
    - Security: login with sessions, encrypted local data, a PIN per device (5 tries), fingerprint or face via passkey PRF, auto-lock, signing out devices, recovery by 3 questions plus a one-time code, menu resets. Code.gs v3.
    - The statement's folio, nominees, registrar, distributor, KYC/PAN status, cost and exit load; ELSS lock-in.
    - "Update now" and the daily check for a paused nightly workflow.
-2. **Owner to do after merging:** paste Code.gs v3 and deploy a new version, run `checkNightly` once to allow the new permissions, make the login on the site, add `GITHUB_TOKEN`, and choose SIPs → Keep the nightly data update running.
+   - Separate family profiles in one Sheet (Code.gs v4).
+2. **Owner to do after merging:** paste Code.gs v4 and deploy a new version (Manage deployments → New version; no new permissions after v3). If not done for v3: run `checkNightly` once to allow its permissions, make the login on the site, add `GITHUB_TOKEN` and `GITHUB_REPO`, and choose SIPs → Keep the nightly data update running. Then invite family members from Security → Family.
 3. **Still open, not scheduled:**
    - Capital gains from the statement's transactions (FIFO, the ₹1.25 lakh LTCG allowance, STCG/LTCG split), and units still under exit load.
    - Swap the fixtures' illustrative rows for real ones from the Drive archive.

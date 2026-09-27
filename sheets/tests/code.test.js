@@ -42,7 +42,7 @@ test("ping answers with the epoch, and never the Sheet's address", () => {
   assert.match(r.epoch, /^e[0-9a-z]{8,}$/);
   assert.ok(!JSON.stringify(r).includes('docs.google.com'), 'no link to the Sheet');
   assert.ok(!JSON.stringify(g.sync({ epoch: null, since: 0, changes: [] })).includes('docs.google.com'), 'nor in a sync');
-  assert.equal(r.version, 3);
+  assert.equal(r.version, 4);
   assert.equal(r.account, false, 'no login yet');
 });
 

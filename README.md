@@ -142,7 +142,7 @@ The Sheet gets four tabs you can read, sort and chart:
 | Transactions | Every transaction from your imported CAS statement |
 | Plan | The inputs on the Plan page |
 
-A hidden `_data` tab holds the records the devices sync. Edit on the site: changes made in the readable tabs are overwritten at the next sync.
+A hidden `_data` tab holds the records the devices sync. Edit on the site: changes made in the readable tabs are overwritten at the next sync. Once there are [family members](#family-members-in-one-sheet), every tab starts with a **Member** column, the Plan tab has a column per person, and the Portfolio tab ends with the family's total.
 
 ### Set it up (about five minutes, once)
 
@@ -165,14 +165,29 @@ Connect the device that holds your real data first. When a device connects, its 
 - If you're offline, changes wait on the device and go up at the next sync. Home shows **Sheet not updated** until they do.
 - Your investments, goals, plan and benchmark choices sync. Chart types, filters and which page you were on stay on each device.
 - When two devices change the same thing, the later change wins. Removing an investment removes it everywhere.
-- The app never links to the Sheet or shows its address: family members sign in to the app, and only you, the Sheet's owner, open the Sheet (from your Google Drive). The Sheet has a **SIPs** menu: *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, *Keep the nightly data update running* (and *Check it now*, *Stop the daily check*), *Sign out every device*, *Remove the login*, and *Erase the synced data*.
+- The app never links to the Sheet or shows its address: family members sign in to the app, and only you, the Sheet's owner, open the Sheet (from your Google Drive). The Sheet has a **SIPs** menu: *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, *Keep the nightly data update running* (and *Check it now*, *Stop the daily check*), *Sign out every device* (everyone's), *Remove the login* (everyone's), and *Erase the synced data*.
 - **Disconnect this device** stops syncing and keeps the data on the device and in the Sheet.
+
+### Family members in one Sheet
+
+One Sheet can hold up to 8 people, each with their own name, password, portfolio, plan and benchmark choices. On the site, each person sees only their own. You, the Sheet's owner, see everyone's in the Sheet's tabs. You need a login first (step 9 above): the first login on a Sheet is its owner.
+
+1. On your device, open **Security**. Under **Family**, press **Add a family member**. You get an invite link and a code (like `7K2QD-M9XRT`). Each one works once, within 7 days.
+2. Send the link to the family member. It opens SIPs with your Sheet's web app URL and the code filled in. (Or give them the web app URL and the code: in SIPs they open **Google Sheet**, paste the URL, press **Continue**, and choose **Join with an invite**.)
+3. They choose their name, a password, 3 security questions and a PIN, and keep the recovery code they're shown. Their portfolio starts empty; they add their SIPs or import their own statement.
+4. On their other devices, they sign in with their own name and password, the same way as step 10 above.
+
+- **Family** in Security lists everyone, with their number of devices. Members see their own devices and sign them out themselves; each person's recovery works as in [Lock and login](#lock-and-login).
+- **Remove** takes away a member's login and signs out their devices. Tick **Also erase their investments and plan** to delete those from the Sheet too. Otherwise they stay in the Sheet under that name, and Family lists the name with **Invite again** and **Erase**. **Invite again** makes an invite that works only with that name, so the investments go back to that person and to no one else; nobody else can join under a name whose data is kept.
+- A member who has lost both their password and their recovery code: remove them (without erasing), choose **Invite again**, and they join with their name and a new password.
+- One device serves one person at a time. If someone else signs in on it, SIPs asks first, then removes the last person's copy from that device (it stays in the Sheet) before loading the new person's.
+- The invite link carries the web app URL and the code, never the Sheet's address. Send it only to the person it's for. Under **Family**, **Cancel** withdraws the invites nobody has used yet.
 
 ### After you change `Code.gs`
 
-Paste the new version into Apps Script and save. Then choose **Deploy → Manage deployments**, press the pencil icon, set **Version** to **New version**, and press **Deploy**. The URL stays the same. Saving alone doesn't change what the URL runs. To check, open the URL in a browser: it shows the running `version` (3 for this release).
+Paste the new version into Apps Script and save. Then choose **Deploy → Manage deployments**, press the pencil icon, set **Version** to **New version**, and press **Deploy**. The URL stays the same. Saving alone doesn't change what the URL runs. To check, open the URL in a browser: it shows the running `version` (4 for this release).
 
-Version 3 asks Google for two more permissions: to connect to an external service (GitHub, for **Update now**) and to run while you're away (the daily check). After deploying, choose `checkNightly` in the editor's function list, press **Run** once, and allow them; until you do, the site can't reach the new version.
+Version 3 asked Google for two more permissions: to connect to an external service (GitHub, for **Update now**) and to run while you're away (the daily check). If you're coming from version 2 or earlier, after deploying choose `checkNightly` in the editor's function list, press **Run** once, and allow them; until you do, the site can't reach the new version. Version 4 (family members) asks for nothing new. Your login carries over, and it becomes the owner's.
 
 ### Keeping it private
 
@@ -187,9 +202,9 @@ Open **Security** in the menu (on a phone, **Portfolio → Security and devices*
 
 - **A PIN for each device.** Your investments, plan, settings and Sheet connection are then stored encrypted in the browser. The lock screen asks for the 6-digit PIN; after 5 wrong PINs the device forgets its PIN key and only your password opens it (then you choose a new PIN). SIPs locks itself after 5 minutes away, or the time you choose, and **Lock now** locks it at once.
 - **Fingerprint or face**, on browsers that can use a passkey to unlock data (recent Chrome on Android, Safari on iPhone and Mac): **Use fingerprint or face** in Security.
-- **One login for every device**, once your Google Sheet is connected with `Code.gs` version 3. On the first device, choose **Make your login**: a name, a password of 10 or more characters, 3 security questions, and this device's PIN. You'll get a **recovery code**: write it down. From then on the secret alone no longer opens your data; each device opens **Google Sheet**, pastes the URL, presses **Continue**, and signs in with the name and password.
+- **One login for every device**, once your Google Sheet is connected with `Code.gs` version 3 or later. On the first device, choose **Make your login**: a name, a password of 10 or more characters, 3 security questions, and this device's PIN. You'll get a **recovery code**: write it down. From then on the secret alone no longer opens your data; each device opens **Google Sheet**, pastes the URL, presses **Continue**, and signs in with the name and password.
 - **Devices**: Security lists every signed-in device. **Sign out** one, or **Sign out every other device**: at its next sync, a signed-out device loses its copy of your data (your Sheet keeps it) and has to sign in again.
-- **Forgot your password?** On the lock screen, or in Google Sheet, answer your 3 questions and type the recovery code to set a new password. The code is used up: you get a new one, and every other device is signed out. If the questions or code are lost too, the Sheet's owner can choose **SIPs → Remove the login** in the Sheet, connect with the secret, and make a new login.
+- **Forgot your password?** On the lock screen, or in Google Sheet, answer your 3 questions and type the recovery code to set a new password. The code is used up: you get a new one, and every other device is signed out. If the questions or code are lost too: for a family member, the owner removes them and invites them again (see [Family members](#family-members-in-one-sheet)); for the owner, choose **SIPs → Remove the login** in the Sheet (it removes everyone's login, and keeps everyone's data), connect with the secret, make a new login, and choose **Invite again** for each family member under **Family**.
 
 How it works: your name and password go through PBKDF2 (600,000 rounds) to make two keys. One proves you to your Sheet's script, which stores only its SHA-256; the other never leaves the device and opens this device's data key. The PIN (PBKDF2 with its own salt) and your fingerprint (a passkey's PRF secret) each keep another copy of that data key. The recovery proof is made the same way from your answers and the recovery code. The script pauses logins for 15 minutes after 5 wrong passwords, and recovery for an hour after 3 wrong tries, for longer each time.
 
@@ -252,7 +267,7 @@ Edit `pipeline/config.json`:
 ```bash
 pip install -r pipeline/requirements-dev.txt
 python -m pytest pipeline/tests
-node --test sheets/tests/*.test.js    # both Apps Scripts (sync, login, fund data update, Drive archive), against simulated Google services
+node --test sheets/tests/*.test.js    # both Apps Scripts (sync, login, family profiles, fund data update, Drive archive), against simulated Google services
 node --test tests/*.test.js           # the in-browser CAS reader, against a made-up statement
 ```
 

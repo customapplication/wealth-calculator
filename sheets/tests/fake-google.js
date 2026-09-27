@@ -35,6 +35,7 @@ class Range {
   }
   getNumberFormats() { const out = []; for (let i = 0; i < this.nr; i++) { const r = []; for (let j = 0; j < this.nc; j++) r.push(this.sh.fmt.get(`${this.row + i},${this.col + j}`) || ''); out.push(r); } return out; }
   setFontWeight() { return this; }
+  clearContent() { this.each((r, c) => { this.sh.cells.delete(`${r},${c}`); }); return this; }
 }
 
 let sheetIds = 0;
@@ -181,6 +182,7 @@ class Properties {
   getProperty(k) { return this.m.has(k) ? this.m.get(k) : null; }
   setProperty(k, v) { this.m.set(k, String(v)); return this; }
   deleteProperty(k) { this.m.delete(k); return this; }
+  getKeys() { return [...this.m.keys()]; }
 }
 
 /** A fresh copy of a script (Code.gs by default) with its own Sheet, Drive and script properties. */

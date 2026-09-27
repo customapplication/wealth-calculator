@@ -691,6 +691,8 @@ html.locked .app,html.locked .tabbar,html.locked .skip,html.locked .panel,html.l
 .lock-foot small{font-size:12.5px;color:var(--ink-3);text-wrap:balance}
 .lock-form{width:100%;display:flex;flex-direction:column;gap:12px;margin-top:26px;text-align:left}
 .lock-form .btn.wide{margin-top:6px}
+.join-form{margin-top:14px}
+.join-form h3{margin:0;font:650 17px/1.3 var(--fig)}
 .btn.danger{background:var(--loss);color:#fff}
 .lock .btn.danger{margin-top:26px}
 .rec-q{display:flex;flex-direction:column;gap:12px}
@@ -731,4 +733,5 @@ html.locked .app,html.locked .tabbar,html.locked .skip,html.locked .panel,html.l
 .lock-form .field,.sec .field,.qrow .field,.rec-q .field{margin:0}
 .fresh-act{margin:8px 0 0}
 .devices li button{white-space:nowrap;flex:none}.sec details summary{cursor:pointer;min-height:36px;display:flex;align-items:center}
+.devices .acts{display:flex;gap:14px;flex:none}
 #panelData .panel-body{display:flex;flex-direction:column;gap:12px}#panelData .note,#panelData .kv,#panelData .hint{margin:0}#panelData .hint:empty{display:none}
