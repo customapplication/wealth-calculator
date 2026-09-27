@@ -44,6 +44,12 @@ window.Sync = (() => {
   }
   const hashOf = data => hash(canon(data));
 
+  /* Settings kept by other pages, each synced as settings/<id>: { syncGet() -> {data, blank}, syncSet(data) }. */
+  const EXTRA = () => ({ bench: window.Bench, compare: window.Comparisons, forecast: window.Forecast });
+  const EXTRA_KEYS = { 'mf-bench:v1': 'bench', 'mf-comparisons:v1': 'compare', 'mf-forecast:v1': 'forecast' };
+  // What goes from this device when it's signed out or handed to someone else (the Sheet keeps it).
+  const PERSONAL = ['mf-portfolio:v1', 'corpus-planner:v1'].concat(Object.keys(EXTRA_KEYS));
+
   /**
    * This device's records as {key: {data, blank}}. `blank` means there is
    * nothing worth sending unless the record was synced before: an untouched
@@ -60,7 +66,7 @@ window.Sync = (() => {
     if (what !== 'portfolio' && window.Planner && window.Planner.syncGet) {
       out['settings/plan'] = window.Planner.syncGet();
     }
-    if (window.Bench) out['settings/bench'] = window.Bench.syncGet();
+    for (const [id, x] of Object.entries(EXTRA())) if (x) out['settings/' + id] = x.syncGet();
     return out;
   }
 
@@ -144,7 +150,7 @@ window.Sync = (() => {
     S = fresh({ url: S.url, user: S.user, version: S.version, account: true, hold: 'login', out: true,
                 lastError: 'This device was signed out, so its copy of your data was removed. Sign in to get it back.' });
     persist();
-    ['mf-portfolio:v1', 'corpus-planner:v1', 'mf-bench:v1'].forEach(k => store.del(k));
+    PERSONAL.forEach(k => store.del(k));
     const go = () => location.reload();
     if (window.Lock && window.Lock.flush) window.Lock.flush().then(go, go); else go();
   }
@@ -175,9 +181,10 @@ window.Sync = (() => {
           S.docs[k] = { at: r.at, h: hashOf({ casWarnings: d.casWarnings || [], casPeriod: d.casPeriod || null }) };
         } else if (r.c === 'settings' && r.id === 'plan' && !r.del && window.Planner && window.Planner.syncSet) {
           plan = r.data; planAt = r.at;
-        } else if (r.c === 'settings' && r.id === 'bench' && !r.del && window.Bench) {
-          window.Bench.syncSet(r.data);
-          S.docs[k] = { at: r.at, h: hashOf(window.Bench.syncGet().data) };
+        } else if (r.c === 'settings' && !r.del && EXTRA()[r.id]) {
+          const x = EXTRA()[r.id];
+          x.syncSet(r.data);
+          S.docs[k] = { at: r.at, h: hashOf(x.syncGet().data) };
         }
       }
       if (P) window.Portfolio.syncSet(P);
@@ -363,7 +370,7 @@ window.Sync = (() => {
     clearTimeout(timer);
     S = fresh({ url, session: r.session, user: r.user, role: r.role || '', account: true, version: r.version || 0 });
     persist();
-    ['mf-portfolio:v1', 'corpus-planner:v1', 'mf-bench:v1'].forEach(k => store.del(k));
+    PERSONAL.forEach(k => store.del(k));
     if (window.Lock) {
       // The lock is now this person's: their password opens it, then they choose their own PIN.
       if (window.Lock.on() && keys) { await window.Lock.rewrap(keys, true); window.Lock.noteSheet(url); }
@@ -561,7 +568,7 @@ window.Sync = (() => {
     try {
       if (key === 'mf-portfolio:v1' && window.Portfolio) window.Portfolio.syncSet(store.json(key, { holdings: [] }));
       else if (key === 'corpus-planner:v1' && window.Planner && window.Planner.syncSet) window.Planner.syncSet(store.json(key, {}));
-      else if (key === 'mf-bench:v1' && window.Bench) window.Bench.syncSet(store.json(key, {}));
+      else if (EXTRA_KEYS[key] && EXTRA()[EXTRA_KEYS[key]]) EXTRA()[EXTRA_KEYS[key]].syncSet(store.json(key, {}));
     } finally { applying = false; }
   });
   window.addEventListener('online', () => schedule(0));

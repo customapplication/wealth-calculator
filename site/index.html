@@ -60,6 +60,9 @@
     <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5.5 15.5 12 9 18.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-compare" viewBox="0 0 24 24"><path d="M3.5 20h17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m4.5 15 4.5-5 4 3 6.5-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="m4.5 17.5 5-2.5 4 1 6.5-4" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1.7" stroke-linecap="round" stroke-dasharray="2 2.6"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M6.5 3.5h11a1 1 0 0 1 1 1v16l-6.5-4-6.5 4v-16a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.1 7.1a1 1 0 0 1-1.4 0z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></symbol>
   </defs>
 </svg>
@@ -71,6 +74,7 @@
         <a href="#home" data-view="home"><svg class="ic" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></a>
         <a href="#portfolio" data-view="portfolio"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg><span>Portfolio</span></a>
         <a href="#explore" data-view="explore"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg><span>Explore funds</span></a>
+        <a href="#compare" data-view="compare"><svg class="ic" aria-hidden="true"><use href="#i-compare"/></svg><span>Compare</span></a>
         <a href="#plan" data-view="plan"><svg class="ic" aria-hidden="true"><use href="#i-bars"/></svg><span>Plan</span></a>
     </nav>
     <div class="nav-foot">
@@ -177,7 +181,7 @@
       <section class="quick phone-only" aria-label="Quick actions">
         <button type="button" class="act" data-open-panel="panelImport"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Import statement</button>
         <button type="button" class="act" data-open-panel="panelAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add a SIP</button>
-        <a class="act" href="#explore"><svg class="ic" aria-hidden="true"><use href="#i-compare"/></svg>Compare funds</a>
+        <a class="act" href="#compare"><svg class="ic" aria-hidden="true"><use href="#i-compare"/></svg>Compare funds</a>
       </section>
     </div>
   </section>
@@ -225,6 +229,7 @@
           <label><input type="radio" name="pf-group" value="amc"><span>Fund house</span></label>
           <label><input type="radio" name="pf-group" value="plan"><span>Plan</span></label>
           <label><input type="radio" name="pf-group" value="goal"><span>Goal</span></label>
+          <label><input type="radio" name="pf-group" value="sip"><span>SIP</span></label>
         </div>
       </div>
       <div id="pfGroups" class="groups"></div>
@@ -294,7 +299,9 @@
         <button type="button" class="linkish" id="exReset">Reset filters</button>
       </div>
     </section>
-    <div class="ex-viewbar"><p class="ex-count" id="exCount" role="status"></p><div id="exView"></div></div>
+    <div class="ex-viewbar"><p class="ex-count" id="exCount" role="status"></p>
+      <div class="ex-sort phone-only"><span class="box sel"><select id="exSort" aria-label="Sort the funds by"></select></span><button type="button" class="btn quiet sm" id="exSortDir"></button></div>
+      <div id="exView"></div></div>
     <div id="exFresh" class="fresh"></div>
     <section class="card flush" id="exResults">
       <div class="scroll" id="exTableWrap"><table class="tbl funds" id="exTable"></table></div>
@@ -321,41 +328,99 @@
     </section>
     <div class="tray" id="cmpTray" hidden>
       <div class="tray-text"><b id="cmpTrayCount"></b><span id="cmpTrayNames"></span></div>
-      <button type="button" class="linkish on-dark" id="cmpTrayClear">Clear</button>
+      <button type="button" class="tray-clear" id="cmpTrayClear" aria-label="Clear the funds picked to compare"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg><span>Clear</span></button>
       <a class="btn" href="#compare" id="cmpTrayGo">Compare</a>
     </div>
   </section>
 
   <!-- ============================== Compare ============================== -->
   <section class="view" id="view-compare" data-view="compare" hidden>
-    <header class="vhead back">
-      <a class="btn-icon" href="#explore" aria-label="Back to Explore funds"><svg class="ic" aria-hidden="true"><use href="#i-back"/></svg></a>
+    <header class="vhead">
       <h1 class="vtitle">Compare funds</h1>
+      <div class="vhead-actions"><button type="button" class="btn quiet sm" id="cmpSaveBtn" hidden><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg>Save this comparison</button></div>
     </header>
+    <form class="card save-box" id="cmpSaveBox" hidden>
+      <label class="field"><span class="lbl">Name this comparison</span><span class="box"><input id="cmpSaveName" type="text" maxlength="60" autocomplete="off" placeholder="e.g. Flexi caps vs the index"></span></label>
+      <div class="btn-row"><button type="submit" class="btn sm">Save</button><button type="button" class="btn quiet sm" id="cmpSaveCancel">Cancel</button><span class="hint" id="cmpSaveMsg" aria-live="polite"></span></div>
+    </form>
+    <section class="card" id="cmpSaved" hidden>
+      <div class="card-head"><h2>Saved comparisons</h2><span class="muted small" id="cmpSavedSub"></span></div>
+      <ul class="saved-list" id="cmpSavedList"></ul>
+    </section>
+    <div class="cmp-add">
+      <div class="combo" id="cmpAddBox">
+        <label class="search" for="cmpAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg><input id="cmpAdd" type="search" placeholder="Add a fund to compare" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="cmpAddList"></label>
+        <ul id="cmpAddList" class="combo-list" role="listbox" aria-label="Funds" hidden></ul>
+      </div>
+    </div>
     <div id="cmpEmpty" class="welcome" hidden>
       <h2>Pick funds to compare</h2>
-      <p>On Explore funds, tick <b>Compare</b> on up to 5 funds from any category. You'll see how ₹10,000 grew in each, next to the typical fund in the category and its benchmark.</p>
+      <p>Add up to 5 funds above, or tick <b>Compare</b> next to them on Explore funds. You'll see what a lump sum or a monthly SIP would have grown to in each, next to the typical fund in the category and its benchmark. Save a comparison to come back to it.</p>
       <a class="btn" href="#explore"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg>Explore funds</a>
     </div>
     <div id="cmpBody" hidden>
-      <div class="seg wide-seg" role="radiogroup" aria-label="Period" id="cmpRange"></div>
+      <div class="cmp-controls">
+        <div class="seg" role="group" aria-label="How you invest" id="cmpMode">
+          <button type="button" class="seg-btn" data-mode="lump">Lump sum</button>
+          <button type="button" class="seg-btn" data-mode="sip">Monthly SIP</button>
+        </div>
+        <label class="field cmp-amt"><span class="sr-only" id="cmpAmtLbl">Amount</span><span class="box num"><span class="pre">₹</span><input id="cmpAmt" type="number" min="100" max="100000000" step="500" inputmode="numeric" aria-labelledby="cmpAmtLbl"><span class="post" id="cmpAmtPost">once</span></span></label>
+        <div class="seg wide-seg" role="group" aria-label="Period" id="cmpRange"></div>
+      </div>
       <section class="card">
         <div class="card-head stack"><h2 id="cmpTitle"></h2><span class="muted small" id="cmpSub"></span></div>
-        <div class="chart-box tall" id="cmpChartBox"><canvas id="cmpChart" role="img" aria-label="Growth of 10,000 rupees in each fund"></canvas></div>
+        <div class="chart-box tall" id="cmpChartBox"><canvas id="cmpChart" role="img" aria-label="What the money grew to in each fund"></canvas></div>
         <ul class="cmp-legend" id="cmpLegend"></ul>
-        <div class="cmp-add">
-          <div class="combo" id="cmpAddBox">
-            <label class="search" for="cmpAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg><input id="cmpAdd" type="search" placeholder="Add another fund" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="cmpAddList"></label>
-            <ul id="cmpAddList" class="combo-list" role="listbox" aria-label="Funds" hidden></ul>
-          </div>
-        </div>
       </section>
       <section class="card flush"><div class="scroll"><table class="tbl facts" id="cmpFacts"></table></div></section>
-      <p class="muted small">Past returns don't predict future ones. Index values come from NSE, not AMFI, so an index fund's NAV stands in for each benchmark.</p>
+      <p class="muted small">Past returns don't predict future ones. Each purchase uses the first NAV on or after its date, less 0.005% stamp duty from July 2020; exit loads and tax are left out. Index values come from NSE, not AMFI, so an index fund's NAV stands in for each benchmark.</p>
     </div>
   </section>
 
   <!-- ============================== Plan ============================== -->
+  <section class="view" id="view-forecast" data-view="plan" hidden>
+    <header class="vhead"><h1 class="vtitle">Plan</h1></header>
+    <div class="seg wide-seg plan-switch" role="group" aria-label="What to plan">
+      <button type="button" class="seg-btn" data-plan-mode="forecast">Your portfolio</button>
+      <button type="button" class="seg-btn" data-plan-mode="plan">A plan</button>
+    </div>
+    <div id="fcEmpty" class="welcome" hidden>
+      <h2>Forecast your portfolio</h2>
+      <p>Import your statement or add your SIPs on Portfolio, and this page shows what they could grow to: today's worth, your running SIPs and their step-ups, at the return you choose.</p>
+      <div class="btn-row"><a class="btn" href="#portfolio"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg>Go to Portfolio</a><button type="button" class="btn quiet" data-plan-mode="plan">Make a plan instead</button></div>
+    </div>
+    <div id="fcBody" hidden>
+      <section class="card fc-inputs" aria-label="Forecast settings">
+        <label class="field"><span class="lbl">Keep going for</span><span class="box num"><input id="fcYears" type="number" min="1" max="45" step="1" inputmode="numeric"><span class="post">years</span></span></label>
+        <div class="field fc-rate"><label class="lbl" for="fcRate">Return a year</label>
+          <div class="row"><span class="box num"><input id="fcRate" type="number" min="-10" max="40" step="0.5" inputmode="decimal"><span class="post">%</span></span>
+            <div class="seg" role="group" aria-label="Quick picks" id="fcRates"></div></div></div>
+        <div class="field fc-step"><span class="lbl" id="fcStepLbl">Step-up</span>
+          <div class="row"><div class="seg" role="group" aria-labelledby="fcStepLbl" id="fcStepMode">
+            <button type="button" class="seg-btn" data-step-mode="own">Each SIP's own</button>
+            <button type="button" class="seg-btn" data-step-mode="all">Same for all</button>
+          </div><span class="box num" id="fcStepBox"><input id="fcStep" type="number" min="0" max="100" step="1" inputmode="decimal" aria-label="Step-up for every SIP"><span class="post">% a year</span></span></div></div>
+        <label class="field"><span class="lbl">Inflation</span><span class="box num"><input id="fcInfl" type="number" min="0" max="20" step="0.5" inputmode="decimal"><span class="post">%</span></span></label>
+      </section>
+      <section class="result">
+        <span class="eyebrow" id="fcLead"></span>
+        <span class="big fig" id="fcValue"></span>
+        <span class="result-line" id="fcLine"></span>
+      </section>
+      <section class="card">
+        <div class="card-head stack"><h2>Worth, year by year</h2><span class="muted small" id="fcChartSub"></span></div>
+        <div class="chart-box" id="fcChartBox"><canvas id="fcChart" role="img" aria-label="Forecast worth and money put in, year by year"></canvas></div>
+        <ul class="fc-legend" id="fcLegend"></ul>
+      </section>
+      <section class="card flush">
+        <div class="card-head pad"><h2>Your funds</h2><span class="muted small" id="fcFundsSub"></span></div>
+        <div class="scroll"><table class="tbl fc-table" id="fcTable"></table></div>
+      </section>
+      <div class="btn-row"><button type="button" class="btn quiet" id="fcToPlan"><svg class="ic" aria-hidden="true"><use href="#i-bars"/></svg>Use these numbers in a plan</button><a class="btn quiet" href="#portfolio">Change your SIPs on Portfolio</a></div>
+      <p class="foot">A forecast assumes the same return every month for everything you hold. Real returns swing, differ between funds, and aren't guaranteed. Stopped SIPs add nothing; their money keeps growing. Taxes, exit loads and fund expenses are left out. This is a planning tool, not investment advice.</p>
+    </div>
+  </section>
+
   <section class="view" id="view-plan" data-view="plan" hidden>
     <header class="vhead">
       <h1 class="vtitle">Plan</h1>
@@ -364,6 +429,10 @@
         <button type="button" class="btn sm" data-open-panel="planRail"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg>Edit plan</button>
       </div>
     </header>
+    <div class="seg wide-seg plan-switch" role="group" aria-label="What to plan">
+      <button type="button" class="seg-btn" data-plan-mode="forecast">Your portfolio</button>
+      <button type="button" class="seg-btn" data-plan-mode="plan">A plan</button>
+    </div>
     <div id="banner"></div>
     <section class="card sentence">
       <p id="planSentence"></p>
@@ -567,6 +636,7 @@
     <a href="#home" data-view="home" class="tb"><svg class="ic" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></a>
     <a href="#portfolio" data-view="portfolio" class="tb"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg><span>Portfolio</span></a>
     <a href="#explore" data-view="explore" class="tb"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg><span>Explore</span></a>
+    <a href="#compare" data-view="compare" class="tb"><svg class="ic" aria-hidden="true"><use href="#i-compare"/></svg><span>Compare</span></a>
     <a href="#plan" data-view="plan" class="tb"><svg class="ic" aria-hidden="true"><use href="#i-bars"/></svg><span>Plan</span></a>
   </nav>
 </div>
@@ -629,6 +699,32 @@
     <datalist id="pfGoalList"></datalist>
     <button type="button" class="btn wide" id="pfAdd">Add to portfolio</button>
     <p class="hint" id="pfAddMsg" role="status"></p>
+  </div>
+</div>
+
+<div class="panel" id="panelSip" role="dialog" aria-modal="true" aria-labelledby="panelSipTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelSipTitle">SIP details</b><span class="ph-sum" id="sipFund"></span></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body">
+    <p class="note" id="sipNote"></p>
+    <label class="field"><span class="lbl" id="sipAmtLbl">Monthly amount</span><span class="box"><span class="pre">₹</span><input id="sipAmt" type="number" min="100" step="500" inputmode="decimal"></span></label>
+    <div class="row2">
+      <label class="field"><span class="lbl">Debit day</span><span class="box"><input id="sipDay" type="number" min="1" max="28" step="1" inputmode="numeric"></span></label>
+      <label class="field"><span class="lbl">First SIP</span><span class="box"><input id="sipStart" type="month"></span></label>
+    </div>
+    <div class="field"><span class="lbl" id="sipStatusLbl">Is it still running?</span>
+      <div class="seg block" role="radiogroup" aria-labelledby="sipStatusLbl">
+        <label><input type="radio" name="sip-status" value="on"><span>Running</span></label>
+        <label><input type="radio" name="sip-status" value="off"><span>Stopped</span></label>
+      </div>
+    </div>
+    <label class="field" id="sipEndField"><span class="lbl">Stopped in <small>the month of the last instalment</small></span><span class="box"><input id="sipEnd" type="month"></span></label>
+    <label class="field"><span class="lbl">Raised every year by <small>the step-up, in the month it started</small></span><span class="box"><input id="sipStep" type="number" min="0" max="100" step="1" inputmode="decimal"><span class="post">%</span></span></label>
+    <button type="button" class="btn wide" id="sipSave">Save</button>
+    <div class="btn-row" id="sipCasActs">
+      <button type="button" class="linkish" id="sipReset">Use what the statement shows</button>
+      <button type="button" class="linkish" id="sipNone">This fund has no SIP</button>
+    </div>
+    <p class="hint" id="sipMsg" role="status"></p>
   </div>
 </div>
 

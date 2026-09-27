@@ -133,6 +133,28 @@ def test_amfi_history_failure_is_reported_not_fatal(tmp_path):
     assert meta["amfi_history"]["ok"] is False
     assert "timed out" in meta["amfi_history"]["errors"][0]
     assert meta["recent_gaps"]["count"] == 4          # MFapi stopped in August and nothing filled it
+    span = meta["recent_gaps"]["examples"][0]["spans"][0]
+    assert span["after"] == MFAPI_STOPS.isoformat() and span["before"] == NAV_DATE.isoformat()
+    assert span["missing"] == []                      # no fund has those days, so none is singled out
+
+
+def test_a_fund_missing_days_others_have_lists_them(tmp_path):
+    hole = {date(2026, 9, 14) + timedelta(days=i) for i in range(5)}      # Mon 14 to Fri 18 Sep
+
+    class HoleNet(FakeNet):
+        def history(self, frm, to, tp):
+            text = super().history(frm, to, tp)
+            return "\n".join(l for l in text.split("\n")
+                             if not (l.startswith("102;") and any(l.endswith(f"{d:%d-%b-%Y}") for d in hole)))
+
+    out = tmp_path / "site"
+    out.mkdir()
+    meta = build.run(cfg(verify_days=45), tmp_path / "cache", out, HoleNet(), today=TODAY)
+    gaps = meta["recent_gaps"]
+    assert gaps["count"] == 1
+    ex = gaps["examples"][0]
+    assert ex["code"] == 102 and ex["largest_gap_days"] == 10
+    assert ex["spans"] == [{"after": "2026-09-11", "before": "2026-09-21", "missing": sorted(d.isoformat() for d in hole)}]
 
 
 def test_a_nav_dated_after_today_does_not_set_the_build_date(tmp_path):

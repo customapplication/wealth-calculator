@@ -4,7 +4,7 @@
   'use strict';
   const { $, $$, store, currentTheme, emit } = MF;
   const VIEWS = ['home', 'portfolio', 'explore', 'compare', 'plan'];
-  const NAV_OF = { compare: 'explore' };
+  const NAV_OF = {};
   const THEME_KEY = 'corpus-planner:theme';
   const TITLES = { home: 'Home', portfolio: 'Portfolio', explore: 'Explore funds', compare: 'Compare funds', plan: 'Plan' };
 
@@ -93,7 +93,7 @@
     });
     document.title = `${TITLES[view]} · SIPs`;
     document.documentElement.dataset.view = view;
-    if (view !== 'compare') store.set('corpus-planner:view', view);
+    store.set('corpus-planner:view', view);
     if (current && current !== view && fromHash) window.scrollTo(0, 0);
     current = view;
     emit('mf:view', { view });

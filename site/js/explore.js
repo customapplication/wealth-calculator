@@ -26,15 +26,55 @@
 
   let D = null, inited = false, loading = false, chart = null, detailToken = 0, lastShown = [], rankChart = null, lastHist = null;
   const saved = store.json(KEY, {});
-  const state = Object.assign({ cats: [], funds: [], plan: 'Direct', metric: 'rr3med', top: 10, age: 0, amc: '', sel: null, range: '5', cmp: [] }, saved);
+  const state = Object.assign({ cats: [], funds: [], plan: 'Direct', metric: 'rr3med', top: 10, age: 0, amc: '', sel: null, range: '5', cmp: [], sort: { key: 'rank', dir: 1 } }, saved);
   if (!Array.isArray(state.cats)) state.cats = [];
   if (saved.cat && !state.cats.length) state.cats = [saved.cat];       // the one-category version
   delete state.cat; delete state.q;
   if (!['Direct', 'Regular', 'Both'].includes(state.plan)) state.plan = 'Direct';
+  if (!state.sort || !['rank', 'name'].concat(COLS).includes(state.sort.key)) state.sort = { key: 'rank', dir: 1 };
+  state.sort.dir = state.sort.dir < 0 ? -1 : 1;
   ['funds', 'cmp'].forEach(k => { if (!Array.isArray(state[k])) state[k] = []; state[k] = state[k].map(Number).filter(Number.isFinite); });
   const view = { list: pref('exList', 'table', ['table', 'chart']), fund: pref('exFund', 'area', ['line', 'area', 'years']) };
   const save = () => store.set(KEY, JSON.stringify(state));
   const measure = () => MEASURES.find(m => m.key === state.metric) || MEASURES[0];
+
+  /* ---------- sorting the table: a heading sorts, the same heading again reverses ---------- */
+  const SORTS = [['rank', 'Rank'], ['name', 'Fund name']].concat(COLS.map(k => [k, MEASURES.find(m => m.key === k).col]));
+  const sortLabel = key => (SORTS.find(x => x[0] === key) || SORTS[0])[1];
+  /** Whether the current sort puts low values (or A, or rank 1) first. */
+  function ascending() {
+    const { key, dir } = state.sort;
+    if (key === 'rank' || key === 'name') return dir > 0;
+    const mm = MEASURES.find(m => m.key === key);
+    return (mm.desc ? dir < 0 : dir > 0);             // the first press shows the best first
+  }
+  function sortRows(shown) {
+    const { key } = state.sort, asc = ascending() ? 1 : -1;
+    if (key === 'rank') return asc > 0 ? shown : shown.slice().reverse();
+    const list = shown.slice();
+    if (key === 'name') return list.sort((a, b) => asc * a.n.localeCompare(b.n));
+    const blank = x => x == null || !isFinite(x);
+    return list.sort((a, b) => {
+      const x = a.m[key], y = b.m[key];
+      if (blank(x) || blank(y)) return blank(x) - blank(y);           // blanks stay at the end
+      return asc * (x - y) || a.n.localeCompare(b.n);
+    });
+  }
+  function setSort(key) {
+    state.sort = state.sort.key === key ? { key, dir: -state.sort.dir } : { key, dir: 1 };
+    save(); renderTable(); fillSortControl();
+  }
+  function fillSortControl() {
+    const sel = $('#exSort');
+    if (!sel) return;
+    if (!sel.options.length) sel.innerHTML = SORTS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('');
+    sel.value = state.sort.key;
+    const asc = ascending(), key = state.sort.key;
+    const words = key === 'rank' ? (asc ? 'Rank 1 first' : 'Last rank first') : key === 'name' ? (asc ? 'A to Z' : 'Z to A') : (asc ? 'Lowest first' : 'Highest first');
+    $('#exSortDir').innerHTML = `${icon(asc ? 'up' : 'down')}<span>${words}</span>`;
+    $('#exSortDir').setAttribute('aria-label', `${words}. Reverse the order`);
+    refreshPickers();
+  }
 
   function fmtCell(key, x) {
     if (x == null || !isFinite(x)) return '—';
@@ -117,6 +157,8 @@
     $('#exTop').value = state.top || '';
     $('#exAge').value = state.age || '';
     renderChips();
+    if (!$('#exSort').dataset.pick) { $('#exSort').dataset.pick = '1'; picker($('#exSort'), { title: 'Sort by' }); }
+    fillSortControl();
     refreshPickers();
     const n = D.funds.filter(f => f.h).length;
     $('#exSub').textContent = `${n.toLocaleString('en-IN')} funds with history · AMFI NAVs of ${fmtDate(D.navDate)}`;
@@ -171,7 +213,9 @@
       const open = $('#exFilters').classList.toggle('more');
       $('#exToggle').setAttribute('aria-expanded', String(open));
     });
-    $('#exMetric').addEventListener('change', e => { state.metric = e.target.value; save(); renderTable(); });
+    $('#exMetric').addEventListener('change', e => { state.metric = e.target.value; save(); renderTable(); fillSortControl(); });
+    $('#exSort').addEventListener('change', e => { state.sort = { key: e.target.value, dir: 1 }; save(); renderTable(); fillSortControl(); });
+    $('#exSortDir').addEventListener('click', () => setSort(state.sort.key));
     $('#exAmc').addEventListener('change', e => { state.amc = e.target.value; save(); renderTable(); });
     $$('input[name="ex-plan"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { state.plan = r.value; save(); renderTable(); } }));
     const setTop = v => { state.top = Math.max(0, Math.min(999, Math.round(+v || 0))); $('#exTop').value = state.top || ''; save(); renderTable(); };
@@ -204,15 +248,13 @@
       const box = e.target.closest('input[data-cmp]');
       if (box) { onCmp(box, box.dataset.cmp); return; }
       if (e.target.closest('td.cmpc')) return;
-      const th = e.target.closest('th[data-sort]');
-      if (th) { state.metric = th.dataset.sort; $('#exMetric').value = state.metric; refreshPickers(); save(); renderTable(); return; }
+      const th = e.target.closest('button[data-sort]');
+      if (th) { setSort(th.dataset.sort); const again = $(`#exTable button[data-sort="${state.sort.key}"]`); if (again) again.focus(); return; }
       const tr = e.target.closest('tr[data-code]'); if (tr) pick(tr.dataset.code);
     });
     $('#exTable').addEventListener('keydown', e => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
-      if (e.target.matches('input')) return;
-      const th = e.target.closest('th[data-sort]');
-      if (th) { e.preventDefault(); state.metric = th.dataset.sort; $('#exMetric').value = state.metric; refreshPickers(); save(); renderTable(); const again = $(`#exTable th[data-sort="${state.metric}"]`); if (again) again.focus(); return; }
+      if (e.target.matches('input, button')) return;
       const tr = e.target.closest('tr[data-code]'); if (tr) { e.preventDefault(); pick(tr.dataset.code); }
     });
     $('#exDetail').addEventListener('click', e => {
@@ -243,7 +285,7 @@
     const warn = [];
     if (!h.ok) warn.push("AMFI's NAV history report couldn't be reached on the last run, so recent days weren't re-checked.");
     if (mf.pending > 0) warn.push(`Older history for ${mf.pending.toLocaleString('en-IN')} funds is still being downloaded and will complete over the next nightly runs.`);
-    if (gaps.count > 0) warn.push(`${gaps.count.toLocaleString('en-IN')} funds are missing more than 5 days of NAVs in the last two months.`);
+    if (gaps.count > 0) warn.push(`${gaps.count.toLocaleString('en-IN')} fund${gaps.count === 1 ? ' has' : 's have'} a stretch of more than 5 days without a NAV in the last two months.`);
     const corr = (m.corrections || []).slice(0, 10).map(c => `<li>Scheme ${c.code}, ${fmtDate(c.date)}: ${c.was} replaced with AMFI's ${c.amfi}</li>`).join('');
     $('#exFresh').innerHTML = `<details><summary>${first}</summary><ul>
         <li>Latest NAVs: <a href="${esc(m.sources.latest)}" rel="noopener">${esc(m.sources.latest)}</a> (columns: ${esc((m.navall_columns || []).join('; '))})</li>
@@ -253,8 +295,34 @@
         <li>Whenever two sources disagree, AMFI's value is kept.</li>
         ${h.errors && h.errors.length ? `<li class="warn">AMFI history errors: ${esc(h.errors.join(' | '))}</li>` : ''}
       </ul>${corr ? `<p>Latest corrections:</p><ul>${corr}</ul>` : ''}</details>` +
-      (warn.length ? `<p class="warn">${warn.join(' ')}</p>` : '') +
+      (warn.length ? `<p class="warn">${warn.join(' ')}</p>` : '') + gapDetails(gaps) +
       '<p class="fresh-act"><button type="button" class="linkish" data-open-panel="panelData">Update the fund data</button></p>';
+  }
+
+  /** Which funds have holes in their recent NAVs, and which days. */
+  const dayMonth = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  function dayList(isos) {
+    // 14, 15, 16, 17 and 18 Sep -> "14 to 18 Sep" (weekdays in a row count as a run)
+    const runs = [];
+    for (const d of isos) {
+      const last = runs[runs.length - 1], t = Date.parse(d + 'T00:00:00Z');
+      if (last && (t - last.t <= 3 * DAY) && new Date(t).getUTCDay() !== 0) { last.to = d; last.t = t; } else runs.push({ from: d, to: d, t });
+    }
+    return runs.map(r => r.from === r.to ? dayMonth(r.from) : `${dayMonth(r.from)} to ${dayMonth(r.to)}`).join(', ');
+  }
+  function gapDetails(gaps) {
+    const ex = (gaps.examples || []).filter(g => g && g.code);
+    if (!gaps.count || !ex.length) return '';
+    const rows = ex.map(g => {
+      const f = D.byCode.get(g.code);
+      const spans = (g.spans || []).map(s => s.missing && s.missing.length
+        ? `missing ${dayList(s.missing)} <span class="muted">(other funds have NAVs for ${s.missing.length === 1 ? 'that day' : 'those days'})</span>`
+        : `no NAV between ${dayMonth(s.after)} and ${dayMonth(s.before)} <span class="muted">(no fund has one for those days either: holidays, or AMFI hasn't published them)</span>`);
+      return `<li><b>${esc(f ? f.n : 'Scheme ' + g.code)}</b> <span class="muted">· scheme ${g.code}${f ? ' · ' + esc(shortAmc(f.a)) : ''}</span><br>${spans.length ? spans.join('; ') : `a gap of ${g.largest_gap_days} days`}</li>`;
+    }).join('');
+    const more = gaps.count > ex.length ? `<p class="muted">And ${(gaps.count - ex.length).toLocaleString('en-IN')} more.</p>` : '';
+    return `<details class="gaps"><summary>Which funds, and which days</summary><ul>${rows}</ul>${more}
+      <p class="muted">A figure that needs a missing NAV is left blank rather than guessed. Each night the last 7 days are checked again against AMFI's NAV history.</p></details>`;
   }
 
   /* ---------- the ranking ---------- */
@@ -297,23 +365,30 @@
     shown.forEach(f => names.set(f.n, (names.get(f.n) || 0) + 1));
     const nm = f => names.get(f.n) > 1 && state.plan !== 'Both' ? `${f.n} (${f.c})` : f.n;
     const cb = f => `<input type="checkbox" data-cmp="${f.c}" aria-label="Compare ${esc(f.n)}"${window.Picks.has(f.c) ? ' checked' : ''}>`;
-    const head = `<thead><tr><th class="cmpc"><span class="sr-only">Compare</span></th><th class="rk">#</th><th class="fundh">Fund</th>${COLS.map(c => {
+    const rankOf = new Map(shown.map((f, i) => [f.c, i + 1]));
+    const rows = sortRows(shown), asc = ascending();
+    const th = (key, label, cls, title) => {
+      const on = state.sort.key === key;
+      return `<th class="${cls}"${on ? ` aria-sort="${asc ? 'ascending' : 'descending'}"` : ''}><button type="button" class="th-sort${on ? ' on' : ''}" data-sort="${key}" title="${esc(title)}">${label}<span class="arr" aria-hidden="true">${on ? (asc ? '▲' : '▼') : ''}</span></button></th>`;
+    };
+    const head = `<thead><tr><th class="cmpc"><span class="sr-only">Compare</span></th>${th('rank', '#', 'rk', `Sort by rank (${m.col})`)}${th('name', 'Fund', 'fundh', 'Sort by fund name, A to Z or Z to A')}${COLS.map(c => {
       const mm = MEASURES.find(x => x.key === c);
-      return `<th data-sort="${c}" class="${c === m.key ? 'is-rank' : ''}" title="Rank by ${esc(mm.label.toLowerCase())}" tabindex="0">${esc(mm.col)}${c === m.key ? ' ▾' : ''}</th>`;
+      return th(c, esc(mm.col), c === m.key ? 'is-rank' : '', `Sort by ${mm.label.toLowerCase()}`);
     }).join('')}</tr></thead>`;
-    const body = shown.map((f, i) => `<tr data-code="${f.c}" tabindex="0" class="${f.c === state.sel ? 'is-sel' : ''}">
+    const body = rows.map(f => `<tr data-code="${f.c}" tabindex="0" class="${f.c === state.sel ? 'is-sel' : ''}">
         <td class="cmpc">${cb(f)}</td>
-        <td class="rk">${i + 1}</td>
+        <td class="rk">${rankOf.get(f.c)}</td>
         <td class="fund"><span class="fn">${esc(nm(f))}</span><span class="fa">${esc(subLine(f))} · ${esc(shortAmc(f.a))}</span>${state.plan === 'Both' ? gapNote(f) : ''}</td>
         ${COLS.map(c => `<td class="${c === m.key ? 'is-rank' : ''}${negCls(c, f.m[c])}">${fmtCell(c, f.m[c])}</td>`).join('')}
       </tr>`).join('');
     const none = !pool.length ? 'Add a category or a fund above to see a ranking.' : `No funds match these filters.`;
     $('#exTable').innerHTML = head + '<tbody>' + (body || `<tr><td colspan="${COLS.length + 3}" class="loading">${none}</td></tr>`) + '</tbody>';
-    const others = ['rr3med', 'cons', 'mdd5', 'r5', 'r3'].filter(k => k !== m.key).slice(0, 2);
-    $('#exCards').innerHTML = shown.map((f, i) => {
+    const sk = COLS.includes(state.sort.key) && state.sort.key !== m.key ? state.sort.key : null;
+    const others = (sk ? [sk] : []).concat(['rr3med', 'cons', 'mdd5', 'r5', 'r3'].filter(k => k !== m.key && k !== sk)).slice(0, 2);
+    $('#exCards').innerHTML = rows.map(f => {
       const x = f.m[m.key];
       return `<li class="fcard${f.c === state.sel ? ' is-sel' : ''}" data-code="${f.c}" tabindex="0" role="button" aria-pressed="${f.c === state.sel}">
-        <span class="fc-top"><span class="fc-rk">${i + 1}</span>
+        <span class="fc-top"><span class="fc-rk">${rankOf.get(f.c)}</span>
           <span class="fc-main"><span class="fn">${esc(nm(f))}</span><span class="fa">${esc(subLine(f))}</span></span>
           <label class="fc-cmp">${cb(f)}Compare</label></span>
         <span class="fc-nums"><span class="key"><b class="${negCls(m.key, x)}">${fmtCell(m.key, x)}</b><small>${esc(m.col)}</small></span>
@@ -331,9 +406,10 @@
     $('#exRankWrap').hidden = !asChart;
     if (asChart) renderRankChart(shown); else if (rankChart) { rankChart.destroy(); rankChart = null; }
     const bits = [];
-    if (pool.length) bits.push(`Ranked by ${m.label.toLowerCase()}, ${m.desc ? 'highest' : 'lowest'} first.`);
+    if (pool.length) bits.push(`Ranked by ${m.label.toLowerCase()}, ${m.desc ? 'highest' : 'lowest'} first${state.top && list.length > state.top ? `; the top ${state.top} are shown` : ''}.`);
+    if (pool.length && !asChart && state.sort.key !== 'rank') bits.push(`Sorted by ${state.sort.key === 'name' ? 'fund name' : sortLabel(state.sort.key)}, ${state.sort.key === 'name' ? (asc ? 'A to Z' : 'Z to A') : asc ? 'lowest first' : 'highest first'}; # is each fund's rank.`);
     if (missing && pool.length) bits.push(`${missing} more ${missing === 1 ? 'fund has' : 'funds have'} too little history for this measure.`);
-    if (pool.length) bits.push(asChart ? 'Select a bar to see that fund.' : narrow() ? 'Tap a fund to see its chart.' : 'Select a column heading to rank by it, or a fund to see its chart.');
+    if (pool.length) bits.push(asChart ? 'Select a bar to see that fund.' : narrow() ? 'Tap a fund to see its chart.' : 'Select a column heading to sort by it, and again to reverse. Select a fund to see its chart.');
     $('#exMore').textContent = bits.join(' ');
   }
   function syncChecks() { $$('#view-explore input[data-cmp]').forEach(x => { x.checked = window.Picks.has(x.dataset.cmp); }); }

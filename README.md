@@ -5,10 +5,10 @@ Plan SIPs and SWPs, rank Indian mutual funds within each category using AMFI's o
 The site has these pages:
 
 - **Home**: what you're worth today, your gain and XIRR, how it grew, the SIPs due in the next month, and what you hold.
-- **Portfolio**: add SIPs by hand, or import your CAS statement PDF for exact figures. You'll see value, money in, gain and XIRR from your first instalment, grouped by category, fund house, plan or a goal you set. Every fund card has a **Log in at …** pill that opens its fund house's website, and so does each fund house when you group by fund house. It's kept in your browser and, if you connect one, in a Google Sheet you own.
-- **Explore funds**: search for categories and funds, add as many as you like, and rank them by the measure you choose. Filter by Direct, Regular or both, the top N, how many years a fund has been running, and fund house. Select a fund to see its NAV chart and launch date, send its return to the planner, or start a SIP in it. Tick up to 5 funds to compare them.
-- **Compare**: ₹10,000 put into each fund over 1, 3, 5 or 10 years or since launch, next to the typical fund in its category and a benchmark. The benchmark is an index fund by default, and you can change it to one or more funds, for one fund or its whole category.
-- **Plan**: the SIP, step-up SIP and SWP calculator, written as a sentence you can edit, with what your corpus is made of, and the editable engine.
+- **Portfolio**: add SIPs by hand, or import your CAS statement PDF for exact figures. You'll see value, money in, gain and XIRR from your first instalment, grouped by category, fund house, plan, a goal you set, or whether its SIP is running or stopped. Every fund card has a **Log in at …** pill that opens its fund house's website, and so does each fund house when you group by fund house. It's kept in your browser and, if you connect one, in a Google Sheet you own.
+- **Explore funds**: search for categories and funds, add as many as you like, and rank them by the measure you choose. Filter by Direct, Regular or both, the top N, how many years a fund has been running, and fund house. Select a column heading to sort the table by it (again to reverse; **#** goes back to the ranking); on a phone, use **Sort**. Select a fund to see its NAV chart and launch date, send its return to the planner, or start a SIP in it. Tick up to 5 funds to compare them.
+- **Compare**: what a lump sum, or a monthly SIP, of the amount you choose would have grown to in each fund over 1, 3, 5 or 10 years or the longest time there is, next to the typical fund in its category and a benchmark. A fund (or the typical fund, or the benchmark) younger than the period is drawn from its own first NAV, and says so. The benchmark is an index fund by default, and you can change it to one or more funds, for one fund or its whole category. **Save this comparison** keeps the funds, amount and period under a name, to open again later (it syncs to your Sheet).
+- **Plan**: two views. **Your portfolio** forecasts what you hold today: each fund's worth, plus the SIPs still running with their step-ups, grown at the return you choose for the years you choose, with the money you'd put in and the value in today's money. **A plan** is the SIP, step-up SIP and SWP calculator, written as a sentence you can edit, with what your corpus is made of, and the editable engine; **Use these numbers in a plan** starts it from your portfolio.
 - **Security**: a 6-digit PIN (or your fingerprint or face) opens SIPs, and everything it keeps on the device is encrypted. With your Google Sheet connected, one name and password signs in every device, and you can sign any of them out.
 - **Fund data**: if GitHub ever pauses the nightly update, **Update now** starts it again from the site.
 
@@ -69,6 +69,7 @@ These rules keep the data honest:
 - **Columns are found by name, not position.** On 19 Aug 2026 AMFI inserted Plan and Option columns into `NAVAll.txt`, which broke parsers that counted fields, and the history report now says *NAV Name* where it said *Scheme Name*. This parser reads the header, handles the old and new layouts, and has tests for each. If MFapi falls behind, the pipeline fills the missing days from AMFI.
 - **A NAV dated tomorrow doesn't move the date.** NAVAll.txt sometimes carries NAVs dated the day after it's published. They're kept as AMFI published them, but the site's "NAVs up to" date never runs ahead of the day it was built.
 - **Blank beats wrong.** If a NAV needed for a return is missing by more than 10 days, that figure is left blank. Since-launch returns are left out for funds launched before April 2006, when AMFI's history begins.
+- **Holes are named.** When a fund has gone more than 5 days without a NAV in the last two months, Explore says how many funds, and **Which funds, and which days** lists each one with its missing weekdays (the days most other funds do have a NAV). A stretch no fund has a NAV for is shown as dates between, since it's a holiday or a day AMFI hasn't published.
 
 The Explore page explains each measure under "How these numbers are worked out".
 
@@ -125,7 +126,9 @@ There are two ways to add investments:
 
   Importing a newer statement later merges with what's there: for each fund, the new statement replaces its own period and older transactions stay. A statement that starts after your first investment can't show your full cost, and the page says which funds are affected.
 
-Group your funds by category, fund house, plan or goal. **Set a goal** on any fund card names what it's for, such as *Retirement*, and grouping by goal adds them up. Each card's **Log in at …** pill opens that fund house's own website in a new tab, where you log in; nothing is sent to it from this site. The **Log in to your accounts** card has MF Central, CAMS and KFintech for every folio at once.
+**SIPs, running or stopped.** Each fund card says whether its SIP is running (with today's monthly amount, after its step-ups) or stopped, and when. For a statement fund, SIPs is read from its SIP instalments: the amount of the last one with its stamp duty, the usual debit day, the first month seen, and whether one came in the statement's last 40 days. Select the chip to correct that, or add what a statement can't show: the step-up, the real first month, or the month it stopped. **This fund has no SIP** and **Use what the statement shows** are there too. These details feed the forecast on Plan and the next SIPs on Home; the statement's own units and value never change. **Monthly SIPs** in the summary adds up the running ones.
+
+Group your funds by category, fund house, plan, goal or SIP (running, stopped, none). **Set a goal** on any fund card names what it's for, such as *Retirement*, and grouping by goal adds them up. Each card's **Log in at …** pill opens that fund house's own website in a new tab, where you log in; nothing is sent to it from this site. The **Log in to your accounts** card has MF Central, CAMS and KFintech for every folio at once.
 
 Your portfolio is stored in your browser's local storage. Use **Download backup** to keep a copy or move it to another browser, or connect a Google Sheet (below) to keep every device in step. `.gitignore` already excludes PDFs and portfolio files, so keep them out of the repository.
 
@@ -137,12 +140,12 @@ The Sheet gets four tabs you can read, sort and chart:
 
 | Tab | What's in it |
 |---|---|
-| Portfolio | Each investment's units, money put in, worth, gain and XIRR, and the total. Updated whenever you open the site. |
+| Portfolio | Each investment's units, money put in, worth, gain and XIRR, its SIP (running, or when it stopped), and the total. Updated whenever you open the site. |
 | Investments | Every SIP, one-time investment and statement fund, as you entered it, with its fund house, goal, folio, registrar, distributor, nominees, and KYC and PAN status |
 | Transactions | Every transaction from your imported CAS statement |
 | Plan | The inputs on the Plan page |
 
-A hidden `_data` tab holds the records the devices sync. Edit on the site: changes made in the readable tabs are overwritten at the next sync. Once there are [family members](#family-members-in-one-sheet), every tab starts with a **Member** column, the Plan tab has a column per person, and the Portfolio tab ends with the family's total.
+A hidden `_data` tab holds the records the devices sync. Edit on the site: changes made in the readable tabs are overwritten at the next sync. Once you've made a login (with `Code.gs` version 5), every tab starts with a **Member** column saying whose each row is, even before anyone else joins. With [family members](#family-members-in-one-sheet), the Plan tab has a column per person and the Portfolio tab ends with the family's total.
 
 ### Set it up (about five minutes, once)
 
@@ -163,7 +166,7 @@ Connect the device that holds your real data first. When a device connects, its 
 
 - Changes go to the Sheet a second or two after you make them, and each device picks up the others' changes when you open or return to the site, and every 10 minutes while it's open. **Sync now** does it straight away.
 - If you're offline, changes wait on the device and go up at the next sync. Home shows **Sheet not updated** until they do.
-- Your investments, goals, plan and benchmark choices sync. Chart types, filters and which page you were on stay on each device.
+- Your investments, goals, SIP details, plan, forecast settings, benchmark choices and saved comparisons sync. Chart types, filters and which page you were on stay on each device.
 - When two devices change the same thing, the later change wins. Removing an investment removes it everywhere.
 - The app never links to the Sheet or shows its address: family members sign in to the app, and only you, the Sheet's owner, open the Sheet (from your Google Drive). The Sheet has a **SIPs** menu: *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, *Keep the nightly data update running* (and *Check it now*, *Stop the daily check*), *Sign out every device* (everyone's), *Remove the login* (everyone's), and *Erase the synced data*.
 - **Disconnect this device** stops syncing and keeps the data on the device and in the Sheet.
@@ -185,9 +188,9 @@ One Sheet can hold up to 8 people, each with their own name, password, portfolio
 
 ### After you change `Code.gs`
 
-Paste the new version into Apps Script and save. Then choose **Deploy → Manage deployments**, press the pencil icon, set **Version** to **New version**, and press **Deploy**. The URL stays the same. Saving alone doesn't change what the URL runs. To check, open the URL in a browser: it shows the running `version` (4 for this release).
+Paste the new version into Apps Script and save. Then choose **Deploy → Manage deployments**, press the pencil icon, set **Version** to **New version**, and press **Deploy**. The URL stays the same. Saving alone doesn't change what the URL runs. To check, open the URL in a browser: it shows the running `version` (5 for this release).
 
-Version 3 asked Google for two more permissions: to connect to an external service (GitHub, for **Update now**) and to run while you're away (the daily check). If you're coming from version 2 or earlier, after deploying choose `checkNightly` in the editor's function list, press **Run** once, and allow them; until you do, the site can't reach the new version. Version 4 (family members) asks for nothing new. Your login carries over, and it becomes the owner's.
+Version 3 asked Google for two more permissions: to connect to an external service (GitHub, for **Update now**) and to run while you're away (the daily check). If you're coming from version 2 or earlier, after deploying choose `checkNightly` in the editor's function list, press **Run** once, and allow them; until you do, the site can't reach the new version. Version 4 (family members) and version 5 ask for nothing new. Your login carries over, and it becomes the owner's. Version 5 shows the **Member** column as soon as the Sheet has a login, rebuilds the tabs when someone joins or is removed, adds a **SIP** column to the Portfolio tab, and fills the SIP columns of the Investments tab for statement funds you've given SIP details.
 
 ### Keeping it private
 
@@ -204,6 +207,8 @@ Open **Security** in the menu (on a phone, **Portfolio → Security and devices*
 - **Fingerprint or face**, on browsers that can use a passkey to unlock data (recent Chrome on Android, Safari on iPhone and Mac): **Use fingerprint or face** in Security.
 - **One login for every device**, once your Google Sheet is connected with `Code.gs` version 3 or later. On the first device, choose **Make your login**: a name, a password of 10 or more characters, 3 security questions, and this device's PIN. You'll get a **recovery code**: write it down. From then on the secret alone no longer opens your data; each device opens **Google Sheet**, pastes the URL, presses **Continue**, and signs in with the name and password.
 - **Devices**: Security lists every signed-in device. **Sign out** one, or **Sign out every other device**: at its next sync, a signed-out device loses its copy of your data (your Sheet keeps it) and has to sign in again.
+- **Security questions**: the questions are kept by your Sheet's script. Your answers aren't kept anywhere: your device turns the answers, together with the recovery code, into a scrambled proof (the same way as the password, below), and the script keeps only a fingerprint (SHA-256) of that proof. To recover, you type the answers and the code again, your device makes the proof again, and the script checks it matches. Nobody can read your answers back, not even from the Sheet.
+- **If this browser's data is cleared** (site data, or cache and cookies): with a Google Sheet connected, nothing is lost. Security shows **Your sign-in link**; bookmark it. Open it after clearing, or on a new device, sign in with your name and password (or the secret, before you've made a login), choose a new PIN, and everything comes back from the Sheet. Without a Sheet, the browser holds the only copy, so download a backup on Portfolio first. SIPs also asks the browser to keep its data rather than clear it on its own (when space runs low, or in Safari after 7 days without a visit); Security shows whether it agreed. Adding SIPs to your home screen helps with that.
 - **Forgot your password?** On the lock screen, or in Google Sheet, answer your 3 questions and type the recovery code to set a new password. The code is used up: you get a new one, and every other device is signed out. If the questions or code are lost too: for a family member, the owner removes them and invites them again (see [Family members](#family-members-in-one-sheet)); for the owner, choose **SIPs → Remove the login** in the Sheet (it removes everyone's login, and keeps everyone's data), connect with the secret, make a new login, and choose **Invite again** for each family member under **Family**.
 
 How it works: your name and password go through PBKDF2 (600,000 rounds) to make two keys. One proves you to your Sheet's script, which stores only its SHA-256; the other never leaves the device and opens this device's data key. The PIN (PBKDF2 with its own salt) and your fingerprint (a passkey's PRF secret) each keep another copy of that data key. The recovery proof is made the same way from your answers and the recovery code. The script pauses logins for 15 minutes after 5 wrong passwords, and recovery for an hour after 3 wrong tries, for longer each time.
@@ -268,7 +273,7 @@ Edit `pipeline/config.json`:
 pip install -r pipeline/requirements-dev.txt
 python -m pytest pipeline/tests
 node --test sheets/tests/*.test.js    # both Apps Scripts (sync, login, family profiles, fund data update, Drive archive), against simulated Google services
-node --test tests/*.test.js           # the in-browser CAS reader, against a made-up statement
+node --test tests/*.test.js           # the in-browser CAS reader (a made-up statement) and the money maths in calc.js
 ```
 
 The nightly workflow runs the pipeline tests before every build, and pull requests run all three sets. If AMFI changes its format again in a way the parser can't handle, the build fails loudly rather than publishing wrong numbers, and yesterday's site stays up.

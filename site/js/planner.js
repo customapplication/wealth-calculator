@@ -1051,6 +1051,18 @@ window.Planner = {
     recalc();
     return true;
   },
+  /* From the Plan page's forecast: start a plan from today's portfolio. */
+  useNumbers(n) {
+    const ok = x => typeof x === 'number' && isFinite(x);
+    if (ok(n.existingCorpus)) state.existingCorpus = Math.max(0, Math.round(n.existingCorpus));
+    if (ok(n.monthlySip)) state.monthlySip = Math.max(0, Math.round(n.monthlySip));
+    if (ok(n.sipYears)) state.sipYears = Math.max(1, Math.min(45, Math.round(n.sipYears)));
+    if (ok(n.stepUpValue)) { state.stepUpType = 'pct'; state.stepUpValue = Math.max(0, Math.round(n.stepUpValue * 10) / 10); }
+    pushStateToInputs();
+    syncOutputs();
+    if (!(ok(n.rate) && window.Planner.addRate(n.rate))) recalc();
+    $('#rateMsg').textContent = 'Started from your portfolio today. Add withdrawals (SWP) and more returns to try.';
+  },
   /* For sync.js: the plan's inputs, and whether they're all still the defaults. */
   syncGet() {
     const data = {};

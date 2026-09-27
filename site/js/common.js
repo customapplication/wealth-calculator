@@ -58,6 +58,8 @@ window.MF = (() => {
     get(k) { return vault && personal(k) ? (vault.mem.has(k) ? vault.mem.get(k) : null) : raw.get(k); },
     set(k, v) {
       if (!(vault && personal(k))) return raw.set(k, v);
+      // Unchanged: no new ciphertext, so another tab isn't told of a change that isn't one (and doesn't echo it back).
+      if (vault.mem.get(k) === String(v)) return true;
       vault.mem.set(k, String(v)); vault.write(k, String(v)); return true;
     },
     del(k) { if (vault && personal(k)) { vault.mem.delete(k); vault.del(k); } else raw.del(k); },

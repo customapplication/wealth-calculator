@@ -76,11 +76,11 @@ button{cursor:pointer}
 .app{min-height:100vh}
 .sidenav{display:none}
 .main{display:block;padding:8px 16px calc(var(--tab-h) + 28px + env(safe-area-inset-bottom,0px));max-width:1200px;margin:0 auto;outline:none}
-.view,#homeBody,#pfBody,#cmpBody{display:flex;flex-direction:column;gap:16px}
+.view,#homeBody,#pfBody,#cmpBody,#fcBody{display:flex;flex-direction:column;gap:16px}
 .brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font-family:var(--fig);font-size:25px;font-weight:700;font-stretch:95%}
 .logo{width:30px;height:30px}
 .logo-bg{fill:var(--accent)} .logo-fg{fill:var(--on-accent)}
-.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));height:calc(var(--tab-h) + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);background:var(--card);border-top:1px solid var(--line)}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));height:calc(var(--tab-h) + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);background:var(--card);border-top:1px solid var(--line)}
 .tb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--ink-3);font-size:12px;font-weight:500;text-decoration:none}
 .tb[aria-current="page"]{color:var(--accent-ink);font-weight:600}
 .tb:hover{color:var(--ink)}
@@ -390,7 +390,8 @@ html.panel-open{overflow:hidden}
 
 /* ---------- Portfolio ---------- */
 .figs4{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 12px}
-@media (min-width:1024px){.figs4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (min-width:1024px){.figs4{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
+@media (max-width:1023px){.figs4>:nth-child(5):last-child{grid-column:1/-1}}
 .figs4 .k{font-size:12.5px;color:var(--ink-3)}
 .figs4 .v{font-family:var(--fig);font-size:24px;font-weight:650;font-variant-numeric:tabular-nums}
 .figs4 .d{font-size:12.5px;color:var(--ink-3)}
@@ -432,6 +433,8 @@ html.panel-open{overflow:hidden}
 .tagchip .ic{width:14px;height:14px}
 .tagchip.ok{color:var(--gain);background:var(--gain-soft);border-color:transparent}
 .tagchip.warn{color:var(--loss);background:var(--loss-soft);border-color:transparent}
+.tagchip.sip-on{color:var(--accent-ink);background:var(--accent-soft);border-color:transparent;font-weight:600}
+.tagchip.sip-off{color:var(--ink-3);background:transparent;border-style:dashed}
 button.tagchip{cursor:pointer}
 .hold-more{margin-top:2px;border-top:1px solid var(--line);padding-top:8px}
 .hold-more summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--accent-ink);min-height:32px;display:flex;align-items:center;list-style:none}
@@ -498,6 +501,9 @@ button.tagchip:hover{border-color:var(--line-2);color:var(--ink)}
 .fresh details{margin-top:4px}
 .fresh summary{cursor:pointer;color:var(--ink-2)}
 .fresh .warn{color:var(--warn)}
+.fresh .gaps summary{color:var(--ink-2);font-weight:600}
+.fresh .gaps ul{margin:6px 0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto}
+.fresh .gaps li{color:var(--ink-2)}
 .funds td{vertical-align:middle}
 .funds .rk{width:36px;color:var(--ink-3);text-align:left}
 .funds .cmpc{width:40px}
@@ -507,8 +513,13 @@ button.tagchip:hover{border-color:var(--line-2);color:var(--ink)}
 .funds td.cmpc,.funds th.cmpc{padding-left:16px}
 .fund .fn{display:block;font-weight:600;font-size:14.5px}
 .fund .fa{display:block;font-size:12.5px;color:var(--ink-3)}
-.funds th[data-sort]{cursor:pointer}
-.funds th[data-sort]:hover{color:var(--ink)}
+.th-sort{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:3px;min-height:32px;white-space:nowrap;border-radius:6px}
+.th-sort:hover{color:var(--ink)}
+.th-sort:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.th-sort.on{color:var(--ink);font-weight:600}
+.th-sort .arr{font-size:10px;min-width:8px}
+.ex-sort{display:flex;align-items:center;gap:8px}
+.ex-sort .box.sel{min-width:150px}
 .funds th.is-rank{color:var(--ink);font-weight:600}
 .funds td.is-rank{font-weight:700}
 .funds tbody tr{cursor:pointer}
@@ -554,6 +565,11 @@ button.tagchip:hover{border-color:var(--line-2);color:var(--ink)}
 .tray-text b{font-size:14.5px}
 .tray-text span{font-size:12.5px;opacity:.78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tray .linkish{color:var(--bg);opacity:.85}
+.tray-clear{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px;border-radius:12px;border:1px solid color-mix(in srgb,var(--bg) 35%,transparent);background:transparent;color:var(--bg);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.tray-clear:hover{background:color-mix(in srgb,var(--bg) 12%,transparent)}
+.tray-clear:focus-visible{outline:2px solid var(--bg);outline-offset:2px}
+.tray-clear .ic{width:16px;height:16px}
+@media (max-width:400px){.tray-clear span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.tray-clear{padding:0 10px}}
 @media (min-width:1024px){.tray{left:calc(var(--nav-w) + 40px);right:40px;bottom:20px;max-width:720px;margin:0 auto}}
 body:has(.tray:not([hidden])) .main{padding-bottom:calc(var(--tab-h) + 110px)}
 
@@ -571,11 +587,62 @@ body:has(.tray:not([hidden])) .main{padding-bottom:calc(var(--tab-h) + 110px)}
 .cmp-legend .rm{width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--ink-3);display:grid;place-items:center}
 .cmp-legend .rm:hover{background:var(--sunk);color:var(--ink)}
 .cmp-legend .rm .ic{width:16px;height:16px}
-.cmp-add{margin-top:12px}
+@media (max-width:759px){
+  .cmp-legend li{flex-wrap:wrap;row-gap:4px}
+  .cmp-legend .nm{flex:1 1 calc(100% - 70px)}
+  .cmp-legend .rm{order:2}
+  .cmp-legend .val{order:3;flex:1 1 100%;flex-direction:row;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:2px 10px;padding-left:30px}
+  .cmp-legend .val:empty{display:none}
+}
+.cmp-add{margin:4px 0 12px}
+.cmp-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;margin-bottom:12px}
+.cmp-controls .wide-seg{flex:1 1 260px;width:auto}
+.cmp-amt{margin:0}
+.cmp-amt .box{min-height:40px}
+.cmp-amt .box.num input{width:7em}
+.cmp-legend .nm .late{color:var(--warn)}
+.save-box{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.save-box .btn-row{align-items:center}
+.saved-list{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column}
+.saved-list li{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line)}
+.saved-list li:first-child{border-top:0}
+.saved-list .open{all:unset;box-sizing:border-box;flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:10px 4px;cursor:pointer;border-radius:8px}
+.saved-list .open:hover b{color:var(--accent-ink)}
+.saved-list .open:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.saved-list .open b{font-size:14.5px;font-weight:600;color:var(--ink)}
+.saved-list .open small{font-size:12.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.saved-list li[aria-current="true"] .open b::after{content:" · showing";font-weight:500;color:var(--ink-3)}
+.saved-list .rm{width:36px;height:36px;border:0;border-radius:8px;background:transparent;color:var(--ink-3);display:grid;place-items:center;flex:none;cursor:pointer}
+.saved-list .rm:hover{background:var(--sunk);color:var(--loss)}
+.saved-list .rm .ic{width:16px;height:16px}
 .search.boxed{background:var(--field)}
 .facts th{white-space:normal;min-width:110px;vertical-align:bottom}
 .facts td:first-child{color:var(--ink-2)}
+.facts tr.sep td{border-bottom:2px solid var(--line-2)}
 .facts .sw{display:inline-block;width:14px;height:3px;border-radius:2px;background:var(--c);vertical-align:3px;margin-right:6px}
+
+/* ---------- Plan: your portfolio's forecast, or a plan ---------- */
+:root:not([data-plan-mode="forecast"]) #view-forecast{display:none!important}
+:root[data-plan-mode="forecast"] #view-plan{display:none!important}
+.plan-switch{margin-bottom:14px;max-width:420px}
+.fc-inputs{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:flex-end}
+.fc-inputs .field{margin:0}
+.fc-inputs .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.fc-inputs .field{min-width:0;max-width:100%}
+.fc-inputs .seg{flex-wrap:wrap;max-width:100%}
+.fc-inputs .box{min-height:40px}
+.fc-inputs .box.num input{width:4.2em}
+.fc-legend{list-style:none;display:flex;flex-wrap:wrap;gap:6px 18px;margin:10px 0 0;padding:0;font-size:13px;color:var(--ink-2)}
+.fc-legend li{display:flex;align-items:center;gap:8px}
+.fc-legend .sw{width:20px;height:0;border-top:3px solid var(--c)}
+.fc-legend .sw.dash{border-top-style:dashed;border-top-width:2px}
+.card-head.pad{padding:16px 16px 0}
+.fc-table td:first-child{text-align:left;white-space:normal;min-width:200px}
+.fc-table th:first-child{text-align:left}
+.fc-table .fn{display:block;font-weight:500}
+.fc-table td small{display:block;font-size:12px;color:var(--ink-3)}
+.fc-table tr.off td{color:var(--ink-3)}
+.fc-table tr.total td{font-weight:600;border-top:2px solid var(--line-2)}
 
 /* ---------- Plan ---------- */
 .sentence{padding:18px}

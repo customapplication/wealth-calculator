@@ -250,6 +250,22 @@ def recent_gap(series: dict[date, float], end: date, days: int = 60) -> int:
     return max((b - a).days for a, b in zip(recent, recent[1:])) if len(recent) > 1 else 0
 
 
+def gap_spans(series: dict[date, float], end: date, days: int = 60, over: int = 5) -> list[tuple[date, date]]:
+    """(last NAV, next NAV) for each stretch of more than `over` days without a NAV in the last `days`."""
+    recent = sorted(d for d in series if d >= end - timedelta(days=days))
+    return [(a, b) for a, b in zip(recent, recent[1:]) if (b - a).days > over]
+
+
+def missing_days(a: date, b: date, published: dict[date, int], quorum: int) -> list[str]:
+    """Weekdays strictly between a and b on which at least `quorum` tracked funds have a NAV."""
+    out, d = [], a + timedelta(days=1)
+    while d < b:
+        if d.weekday() < 5 and published.get(d, 0) >= quorum:
+            out.append(d.isoformat())
+        d += timedelta(days=1)
+    return out
+
+
 def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
@@ -343,6 +359,8 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
     fridays: dict[tuple[str, str], dict[int, tuple]] = defaultdict(dict)
     first_nav: dict[int, date] = {}
     per_scheme: dict[int, dict] = {}
+    published: dict[date, int] = defaultdict(int)       # how many funds have a NAV on each recent day
+    gap_start = max_date - timedelta(days=60)
     full_count = gap_count = 0
 
     for n, s in enumerate(targets, 1):
@@ -375,15 +393,25 @@ def run(cfg: dict, cache_dir: Path, out_dir: Path, net, today: date | None = Non
         fridays[(s.category, s.plan)][s.code] = metrics.weekly_navs(*metrics.arrays(series))
         first_nav[s.code] = min(series)
 
+        for d in series:
+            if d >= gap_start:
+                published[d] += 1
         g = recent_gap(series, s.nav_date)
         if g > 5:
             gap_count += 1
-            if len(gaps) < 25:
-                gaps.append({"code": s.code, "largest_gap_days": g})
+            if len(gaps) < 200:
+                gaps.append({"code": s.code, "largest_gap_days": g, "spans": gap_spans(series, s.nav_date)})
         (nav_out / f"{s.code}.json").write_text(dumps(encode(s.code, series)))
         if n % 1000 == 0:
             log.info("  processed %d/%d", n, len(targets))
     store.save_index()
+
+    # Which days each fund is missing: weekdays inside its gaps on which most other funds have a NAV.
+    # A weekday no one has is a holiday, or a day AMFI hasn't published; each gap still lists its dates.
+    quorum = max(1, len(targets) // 2)
+    for gp in gaps:
+        gp["spans"] = [{"after": a.isoformat(), "before": b.isoformat(), "missing": missing_days(a, b, published, quorum)[:40]}
+                       for a, b in gp["spans"]]
 
     for group in weekly.values():
         for code, share in metrics.consistency(group).items():

@@ -103,7 +103,7 @@
     } else if (canMake) {
       parts.push(`<section class="sec"><h3>Make your login</h3>
         <p class="note">One name and password for every device, kept by your Sheet's script (only a scrambled proof of it, never the password). From then on, the secret alone no longer opens your data: each device signs in, and you can sign any of them out. If you forget the password, your 3 answers plus a recovery code set a new one. You'll be the Sheet's owner, and can then invite family members, each with their own login and portfolio.</p>
-        <form id="secMake">${nameField(sy.user)}${pwFields()}<p class="lbl">3 security questions <small>answers aren't stored anywhere</small></p>${qRows()}
+        <form id="secMake">${nameField(sy.user)}${pwFields()}<p class="lbl">3 security questions <small>the questions are kept; your answers aren't, only a scrambled proof made from them and your recovery code</small></p>${qRows()}
           ${pinFields('PIN for this device')}
           <button type="submit" class="btn wide">${icon('shield')}Make the login and lock this device</button></form></section>`);
     } else {
@@ -141,11 +141,25 @@
     } else if (lk.on && canMake) {
       parts.push(`<section class="sec"><h3>Make your login</h3>
         <p class="note">One name and password for every device, kept by your Sheet's script. Use the password that opens this device, so it keeps opening it.</p>
-        <form id="secMake">${nameField(lk.user)}${pwFields()}<p class="lbl">3 security questions <small>answers aren't stored anywhere</small></p>${qRows()}
+        <form id="secMake">${nameField(lk.user)}${pwFields()}<p class="lbl">3 security questions <small>the questions are kept; your answers aren't, only a scrambled proof made from them and your recovery code</small></p>${qRows()}
           <button type="submit" class="btn wide">${icon('shield')}Make the login</button></form></section>`);
+    }
+    // what happens if this browser's data is cleared
+    if (signedIn || (connected && sy.secret)) {
+      const link = signinLink(sy.url);
+      parts.push(`<section class="sec"><h3>If this browser's data is cleared</h3>
+        <p class="note">Your investments, plan and settings are also in your Google Sheet, so nothing is lost. Open your sign-in link, ${signedIn ? 'sign in with your name and password' : 'paste the secret'}, and choose a new PIN; everything comes back. Bookmark the link, or keep it with your passwords.</p>
+        <label class="field"><span class="lbl">Your sign-in link</span><span class="box"><input readonly id="secSigninLink" value="${esc(link)}"></span></label>
+        <div class="btn-row"><button type="button" class="btn quiet sm" data-sec="copysignin">Copy the link</button></div>
+        <p class="state-line" id="secPersist" hidden></p></section>`);
+    } else {
+      parts.push(`<section class="sec"><h3>If this browser's data is cleared</h3>
+        <p class="note warn-text">This browser holds the only copy of your data. Clearing its site data, or its cache and cookies, deletes it. Connect a Google Sheet (it keeps a copy and brings it back), or download a backup on Portfolio first.</p>
+        <p class="state-line" id="secPersist" hidden></p></section>`);
     }
     parts.push('<p class="hint" id="secMsg" role="status" aria-live="polite"></p>');
     body.innerHTML = parts.join('');
+    showPersist();
 
     $$('#secBody .qrow select').forEach(sel => sel.addEventListener('change', () => { sel.closest('.qrow').querySelectorAll('.field')[1].hidden = !!sel.value; }));
     if (lk.on) L.bioPossible().then(ok => { const b = $('#secBody [data-sec="bio"]'); if (b) b.hidden = !(ok || lk.bio); });
@@ -154,6 +168,33 @@
   }
 
   const msg = (t, bad) => { const m = $('#secMsg'); if (m) { m.textContent = t; m.classList.toggle('bad', !!bad); } };
+
+  /* ---------- keeping this browser's data ---------- */
+  /** A link that opens SIPs with the Sheet's web app URL filled in, ready to sign in (never the Sheet's own address). */
+  function signinLink(url) {
+    const u = btoa(url || '').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return `${location.origin}${location.pathname}#signin=${u}`;
+  }
+  const canPersist = () => !!(navigator.storage && navigator.storage.persisted && navigator.storage.persist);
+  async function showPersist() {
+    const el = $('#secPersist');
+    if (!el || !canPersist()) return;
+    let kept = false;
+    try { kept = await navigator.storage.persisted(); } catch (e) { return; }
+    el.hidden = false;
+    el.classList.toggle('off', !kept);
+    el.innerHTML = kept
+      ? `${icon('okcircle')}<span>This browser has agreed not to clear SIPs' data on its own. Only you can, by clearing it.</span>`
+      : `${icon('shield')}<span>This browser may clear SIPs' data on its own if space runs low (Safari also does after 7 days without a visit, unless SIPs is on your home screen). <button type="button" class="linkish" data-sec="persist">Ask it to keep the data</button></span>`;
+  }
+  /** Ask once per visit, as soon as there's something worth keeping. */
+  let askedPersist = false;
+  async function askPersist() {
+    if (askedPersist || !canPersist()) return false;
+    askedPersist = true;
+    try { return (await navigator.storage.persisted()) || (await navigator.storage.persist()); } catch (e) { return false; }
+  }
+  document.addEventListener('mf:changed', () => { askPersist(); });
 
   async function loadDevices() {
     const ul = $('#secDevices');
@@ -320,6 +361,18 @@
       try { const r = await S().call('invite', {}); showInvite(r.code, r.exp); msg(''); loadMembers(); } catch (err) { msg(err.message, true); }
       return;
     }
+    if (what === 'copysignin') {
+      const box = $('#secSigninLink');
+      try { await navigator.clipboard.writeText(box.value); msg('Copied your sign-in link. Bookmark it, or keep it with your passwords.'); } catch (err) { box.select(); msg('Select the link and copy it.'); }
+      return;
+    }
+    if (what === 'persist') {
+      askedPersist = false;
+      const ok = await askPersist();
+      msg(ok ? 'Done: this browser will keep SIPs\' data.' : "This browser didn't agree. Installing SIPs (Add to Home Screen, or Install app) usually lets it keep the data.");
+      showPersist();
+      return;
+    }
     if (what === 'copy') {
       const box = $('#secInviteLink');
       try { await navigator.clipboard.writeText(box.value); msg('Copied the invite link.'); } catch (err) { box.select(); msg('Select the link and copy it.'); }
@@ -379,7 +432,7 @@
       <h3>Join with an invite</h3>
       <p class="hint join-msg" aria-live="polite">You get your own name, password and portfolio in this family's Sheet. Nobody else sees your password.</p>
       ${field('Invite code', 'invite', 'text', `autocomplete="off" spellcheck="false" autocapitalize="characters" value="${esc(code ? code.slice(0, 5) + '-' + code.slice(5) : '')}"`)}
-      ${nameField('')}${pwFields()}<p class="lbl">3 security questions <small>answers aren't stored anywhere</small></p>${qRows()}
+      ${nameField('')}${pwFields()}<p class="lbl">3 security questions <small>the questions are kept; your answers aren't, only a scrambled proof made from them and your recovery code</small></p>${qRows()}
       <button type="submit" class="btn wide">${icon('plus')}Join</button>
       ${onCancel ? '<button type="button" class="linkish" data-cancel>Back</button>' : ''}</form>`;
     const f = $('form', host), say = (t, bad) => { const m = $('.join-msg', host); m.textContent = t; m.classList.toggle('bad', !!bad); };
@@ -423,6 +476,25 @@
       $('#syncUrl').value = url;
       ['#syncNext', '#syncSecretBox', '#syncLoginBox', '#syncRec'].forEach(sel => { $(sel).hidden = true; });
       joinForm($('#syncJoin'), { url, code: m[2].toUpperCase() });
+    };
+    open();
+  })();
+
+  /** A sign-in link: #signin=<the web app URL, base64url>. It opens the Sheet panel ready to sign in. */
+  (function signinFromLink() {
+    const m = /^#signin=([A-Za-z0-9_-]+)$/.exec(location.hash);
+    if (!m) return;
+    history.replaceState(null, '', location.pathname + location.search + '#home');
+    let url = '';
+    try { url = S().checkUrl(atob(m[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch (e) { return; }
+    const st = S().status();
+    if (S().connected() && st.url === url && !st.out && st.hold !== 'login') return;     // already syncing with it
+    const open = () => {
+      if (!window.Shell) { setTimeout(open, 50); return; }
+      window.Shell.openPanel('panelSheet');
+      $('#syncUrl').value = url;
+      $('#syncNext').hidden = false;
+      $('#syncNext').click();
     };
     open();
   })();
