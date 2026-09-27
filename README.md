@@ -1,14 +1,16 @@
-# Corpus planner
+# SIPs
 
 Plan SIPs and SWPs, rank Indian mutual funds within each category using AMFI's official NAVs, and track your own portfolio from its first SIP. There's no AI anywhere in it. GitHub Actions rebuilds the data every night and GitHub Pages serves the site for free.
 
-The site has three pages:
+The site has these pages:
 
-- **Plan**: the SIP, step-up SIP and SWP calculator, including its editable engine.
-- **Explore funds**: pick a category and rank its funds by the measure you choose. Select a fund to see its NAV chart, then send its return to the planner or start a SIP in it.
-- **My portfolio**: add SIPs by hand, or import your CAS statement for exact figures. You'll see value, money in, gain and XIRR from your first instalment, with a chart, and what you hold by fund, asset class, category or fund house. It's kept in your browser and, if you connect one, in a Google Sheet you own.
+- **Home**: what you're worth today, your gain and XIRR, how it grew, the SIPs due in the next month, and what you hold.
+- **Portfolio**: add SIPs by hand, or import your CAS statement PDF for exact figures. You'll see value, money in, gain and XIRR from your first instalment, grouped by category, fund house, plan or a goal you set. Every fund card has a **Log in at …** pill that opens its fund house's website, and so does each fund house when you group by fund house. It's kept in your browser and, if you connect one, in a Google Sheet you own.
+- **Explore funds**: search for categories and funds, add as many as you like, and rank them by the measure you choose. Filter by Direct, Regular or both, the top N, how many years a fund has been running, and fund house. Select a fund to see its NAV chart and launch date, send its return to the planner, or start a SIP in it. Tick up to 5 funds to compare them.
+- **Compare**: ₹10,000 put into each fund over 1, 3, 5 or 10 years or since launch, next to the typical fund in its category and a benchmark. The benchmark is an index fund by default, and you can change it to one or more funds, for one fund or its whole category.
+- **Plan**: the SIP, step-up SIP and SWP calculator, written as a sentence you can edit, with what your corpus is made of, and the editable engine.
 
-Every chart has a switch for its type: line, area or bars for anything over time, and donut, pie or bars for what you hold. On a phone the site leads with results, puts the inputs in a panel that slides up, and has a tab bar at the bottom. To use it like an app, open it in your phone's browser and choose **Add to Home screen** (on an iPhone, Share → **Add to Home Screen**).
+Every chart has a switch for its type: line, area or bars for anything over time, and donut, pie or bars for what you hold. On a computer the pages are in a menu on the left, and forms open in a panel on the right. On a phone there's a tab bar at the bottom and forms slide up from it. To use it like an app, open it in your phone's browser and choose **Add to Home screen** (on an iPhone, Share → **Add to Home Screen**).
 
 ## Set it up
 
@@ -45,6 +47,7 @@ Then open http://localhost:8000. Opening `index.html` straight from disk won't w
 | Latest NAV, category, plan and option of every scheme | AMFI's `NAVAll.txt` |
 | The last 7 days re-checked, and any missing days filled | AMFI's NAV history report |
 | Older history (backfill only) | MFapi.in, a free copy of AMFI's data |
+| Launch date of each scheme and plan | AMFI's scheme data file |
 
 These rules keep the data honest:
 
@@ -56,19 +59,45 @@ These rules keep the data honest:
 
 The Explore page explains each measure under "How these numbers are worked out".
 
+### Where the nightly data lives
+
+The nightly job writes the site's data files, and they're never committed to this repository (`.gitignore` excludes `site/data/` and `.cache/`):
+
+1. GitHub Actions starts a fresh machine and restores `.cache/` from GitHub's build cache: every tracked fund's NAV history, plus AMFI's last scheme data file.
+2. `pipeline/build.py` downloads today's AMFI files, updates `.cache/`, and writes the finished data into `site/data/`.
+3. The deploy step uploads the whole `site/` folder, data included, to GitHub Pages. The machine is then thrown away, and `.cache/` goes back to the build cache for the next night.
+
+So the files live on the published site, next to the page. The app reads them with ordinary web requests (in `site/js/common.js`):
+
+| File | What's in it | Read by |
+|---|---|---|
+| `data/funds.json` | every open-ended scheme: name, fund house, category, plan, latest NAV, launch dates and all the ranking figures; the typical-fund list and the default benchmarks | every page, through `loadFunds()` |
+| `data/meta.json` | when it was built, the NAV date, and what was checked and corrected | Explore's "How fresh" note |
+| `data/nav/<scheme code>.json` | one fund's full NAV history | charts, Compare and your portfolio's values, through `loadHistory()` |
+| `data/cat/<category-plan>.json` | the typical fund in a category and plan | Compare, through `loadCat()` |
+| `data/links.json` | MF Central, CAMS, KFintech and each fund house's website, checked that night | the **Log in at …** pills and the account links, through `loadLinks()` |
+
+To look at one, add it to the site's address, for example `https://customapplication.github.io/wealth-calculator/data/meta.json`. If you turn on the Drive archive (below), your Drive also keeps each day's raw AMFI file and a monthly copy of the history.
+
+The nightly build also writes what the fund comparison needs:
+
+- **Launch dates** from AMFI's scheme data file, for each plan and for the scheme itself. A date AMFI doesn't give is left blank. If the file can't be fetched, the last good copy is used.
+- **The typical fund** in each category and plan: the median of its funds' weekly returns, chained week by week, in `site/data/cat/`.
+- **A default benchmark** for each equity category. Index values come from NSE rather than AMFI, so an index fund stands in: the Direct Growth plan with the longest history that tracks the index, such as a Nifty 500 index fund for flexi cap funds. The choices are in `benchmarks` in `pipeline/build.py`, and you can override them in `pipeline/config.json`.
+- **Official websites**: MF Central, CAMS, KFintech and each fund house, listed in `pipeline/links.json`. Each night the build checks every address. A site that no longer exists is hidden, and `meta.json` lists it along with any fund house that has no entry.
+
 ## Your portfolio
 
 There are two ways to add investments:
 
 - **By hand.** Enter the fund, SIP amount, debit day, start month and optional yearly step-up. Each instalment is priced at the first NAV on or after the debit date, less the 0.005% stamp duty charged since July 2020. Your real allotment can land a day or two later, so treat these as close estimates.
-- **From your CAS, exactly.** Request a **Detailed** Consolidated Account Statement from camsonline.com or MF Central, covering the period from before your first investment to today. Then, on your computer, run:
+- **From your CAS, exactly.** Request a **Detailed** Consolidated Account Statement (CAMS + KFintech) from camsonline.com, MF Central or KFintech, covering the period from before your first investment to today. It arrives by email as a PDF. Choose **Import statement** on Home or Portfolio and pick the PDF. A PDF without a password is imported straight away. If it has one, the page asks for it: type it and press **Open and import**. The password is used only to open the file, and never stored.
 
-  ```bash
-  pip install -r tools/requirements.txt
-  python tools/cas_to_json.py cas.pdf --out my-portfolio.json   # asks for the PDF password
-  ```
+  The PDF is read in your browser, by a copy of PDF.js that this site serves itself, and it's never uploaded. The page keeps each fund's ISIN, name and fund house, the last 4 characters of the folio, and every transaction; your name, PAN, email, phone and address aren't kept. For every fund it checks that the opening units plus each transaction add up to the statement's closing balance, and it tells you if any don't.
 
-  Import `my-portfolio.json` on the My portfolio page. The converter drops your name, PAN, email, phone and address, and keeps only the last 4 digits of each folio. The page checks your computed units against the statement's closing balance for every fund.
+  Importing a newer statement later merges with what's there: for each fund, the new statement replaces its own period and older transactions stay. A statement that starts after your first investment can't show your full cost, and the page says which funds are affected.
+
+Group your funds by category, fund house, plan or goal. **Set a goal** on any fund card names what it's for, such as *Retirement*, and grouping by goal adds them up. Each card's **Log in at …** pill opens that fund house's own website in a new tab, where you log in; nothing is sent to it from this site. The **Log in to your accounts** card has MF Central, CAMS and KFintech for every folio at once.
 
 Your portfolio is stored in your browser's local storage. Use **Download backup** to keep a copy or move it to another browser, or connect a Google Sheet (below) to keep every device in step. `.gitignore` already excludes PDFs and portfolio files, so keep them out of the repository.
 
@@ -80,8 +109,8 @@ The Sheet gets four tabs you can read, sort and chart:
 
 | Tab | What's in it |
 |---|---|
-| Portfolio | Each investment's units, money put in, worth, gain and XIRR, and the total. Updated whenever you open My portfolio. |
-| Investments | Every SIP, one-time investment and statement fund, as you entered it |
+| Portfolio | Each investment's units, money put in, worth, gain and XIRR, and the total. Updated whenever you open the site. |
+| Investments | Every SIP, one-time investment and statement fund, as you entered it, with its fund house and goal |
 | Transactions | Every transaction from your imported CAS statement |
 | Plan | The inputs on the Plan page |
 
@@ -89,29 +118,30 @@ A hidden `_data` tab holds the records the devices sync. Edit on the site: chang
 
 ### Set it up (about five minutes, once)
 
-1. Go to [sheets.new](https://sheets.new) to make a blank Google Sheet, and give it a name, such as *Corpus planner*.
+1. Go to [sheets.new](https://sheets.new) to make a blank Google Sheet, and give it a name, such as *SIPs*.
 2. In the Sheet, open **Extensions → Apps Script**. Delete the code that's there, paste in the whole of [`sheets/Code.gs`](sheets/Code.gs) from this repository, and press **Save** (the disk icon). Don't edit the file; nothing in it needs changing.
-3. Make a secret. On the site, open **My portfolio**, find **Google Sheet**, and press **Make a new secret**. It fills the Secret box with a random 32-character value and copies it. Any long random string of 16 characters or more works too.
+3. Make a secret. On the site, open **Google Sheet** (the card at the bottom of the menu on a computer; on a phone, **Portfolio → Sync and backup → Google Sheet**) and press **Make a new secret**. It fills the Secret box with a random 32-character value and copies it. Any long random string of 16 characters or more works too.
 4. Back in Apps Script, open **Project Settings** (the gear icon on the left). Under **Script Properties**, press **Add script property** (or **Edit script properties**, then **Add script property**). Enter `SECRET` as the property and paste the secret as the value, then press **Save script properties**. The secret lives here, never in the code, so `Code.gs` in this public repository stays free of it.
 5. Press **Deploy → New deployment**. Next to **Select type**, press the gear and choose **Web app**. Set **Execute as** to **Me** and **Who has access** to **Anyone**, then press **Deploy**.
 6. Press **Authorize access** and choose your Google account. Google warns *"Google hasn't verified this app"*. That's expected, because the app is the script you just pasted. Press **Advanced**, then **Go to (your project) (unsafe)**, then **Allow**.
 7. Copy the **Web app URL**. It starts with `https://script.google.com/` and ends in `/exec`.
-8. On the site, paste the URL into **Web app URL**. The secret should still be in the **Secret** box; if not, paste it there too. Press **Connect**. You'll see *Connected*, and the header shows **Saved to Sheet**.
-9. On every other phone or computer, open the site, go to **My portfolio → Google Sheet**, and paste the same URL and secret.
+8. On the site, paste the URL into **Web app URL**. The secret should still be in the **Secret** box; if not, paste it there too. Press **Connect**. You'll see *Connected*, and Home shows **Sheet synced**.
+9. On every other phone or computer, open the site, open **Google Sheet** the same way, and paste the same URL and secret.
 
 Connect the device that holds your real data first. When a device connects, its investments are added to what the Sheet holds. If the Sheet already has a plan, it replaces the plan on the device that's connecting, unless that device's plan was never changed from the defaults.
 
 ### Using it
 
 - Changes go to the Sheet a second or two after you make them, and each device picks up the others' changes when you open or return to the site, and every 10 minutes while it's open. **Sync now** does it straight away.
-- If you're offline, changes wait on the device and go up at the next sync. The header shows **Sheet not updated** until they do.
+- If you're offline, changes wait on the device and go up at the next sync. Home shows **Sheet not updated** until they do.
+- Your investments, goals, plan and benchmark choices sync. Chart types, filters and which page you were on stay on each device.
 - When two devices change the same thing, the later change wins. Removing an investment removes it everywhere.
-- **Open the Sheet** in the Google Sheet section opens it. The Sheet also has a **Corpus planner** menu with *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, and *Erase the synced data*.
+- **Open the Sheet** in the Google Sheet panel opens it. The Sheet also has a **SIPs** menu with *Refresh the readable tabs*, *Check that this Sheet stores data exactly*, and *Erase the synced data*.
 - **Disconnect this device** stops syncing and keeps the data on the device and in the Sheet.
 
 ### After you change `Code.gs`
 
-Paste the new version into Apps Script and save. Then choose **Deploy → Manage deployments**, press the pencil icon, set **Version** to **New version**, and press **Deploy**. The URL stays the same. Saving alone doesn't change what the URL runs.
+Paste the new version into Apps Script and save. Then choose **Deploy → Manage deployments**, press the pencil icon, set **Version** to **New version**, and press **Deploy**. The URL stays the same. Saving alone doesn't change what the URL runs. To check, open the URL in a browser: it shows the running `version` (2 for this release).
 
 ### Keeping it private
 
@@ -125,7 +155,7 @@ Paste the new version into Apps Script and save. Then choose **Deploy → Manage
 Every night the job downloads AMFI's `NAVAll.txt`, uses it and throws it away. The tracked funds' history is kept in GitHub's build cache, which is a scratch space GitHub may empty. Turn this on and the job also keeps copies in your own Google Drive:
 
 ```
-Corpus planner archive/
+SIPs archive/
   NAVAll/2026/09/NAVAll-2026-09-26.txt.gz     each night's file, exactly as AMFI served it
   NAV history/NAV history 2026-10-01/         the full history of every tracked fund, once a month
 ```
@@ -134,15 +164,15 @@ The site doesn't read these; they're your backup and a record of what AMFI publi
 
 It's a second, separate Apps Script, so the Sheet sync script stays limited to its one Sheet.
 
-1. Go to [script.google.com](https://script.google.com) and press **New project**. Name it *Corpus planner archive*. Delete the code that's there, paste in the whole of [`sheets/Archive.gs`](sheets/Archive.gs), and press **Save**.
+1. Go to [script.google.com](https://script.google.com) and press **New project**. Name it *SIPs archive*. Delete the code that's there, paste in the whole of [`sheets/Archive.gs`](sheets/Archive.gs), and press **Save**.
 2. Make a secret: any random string of 16 characters or more. It should be different from the Sheet sync's secret; the site's **Make a new secret** button works for this too.
 3. Open **Project Settings** (the gear icon). Under **Script Properties**, press **Add script property**. Enter `SECRET` as the property, paste the secret as the value, and press **Save script properties**.
 4. Press **Deploy → New deployment**. Next to **Select type**, press the gear and choose **Web app**. Set **Execute as** to **Me** and **Who has access** to **Anyone**, then press **Deploy**.
-5. Press **Authorize access**. Google asks to see and manage your Drive files, because this script saves files there, and warns that it hasn't verified the app. That's expected: press **Advanced → Go to Corpus planner archive (unsafe) → Allow**. Copy the **Web app URL**.
+5. Press **Authorize access**. Google asks to see and manage your Drive files, because this script saves files there, and warns that it hasn't verified the app. That's expected: press **Advanced → Go to SIPs archive (unsafe) → Allow**. Copy the **Web app URL**.
 6. In the GitHub repository, open **Settings → Secrets and variables → Actions** and press **New repository secret** twice:
    - Name `ARCHIVE_URL`, secret: the web app URL.
    - Name `ARCHIVE_SECRET`, secret: the same secret as step 3.
-7. Run the workflow once from the **Actions** tab. When it finishes, the folder **Corpus planner archive** is in your Drive with today's file and the first history copy.
+7. Run the workflow once from the **Actions** tab. When it finishes, the folder **SIPs archive** is in your Drive with today's file and the first history copy. A folder made by the earlier version, *Corpus planner archive*, is kept and renamed.
 
 The run's log says what was stored, and `meta.json` on the site has an `archive` section. If Drive can't be reached, the site is still built and published; the file for that night is simply missed.
 
@@ -169,6 +199,8 @@ Edit `pipeline/config.json`:
 | `verify_days` | How many recent days are re-checked against AMFI each night |
 | `mfapi_max_per_run` | Cap on history downloads per run, so the first backfill fits in a run |
 | `archive_snapshot_every_days` | How often the full NAV history goes to Google Drive (default 30) |
+| `benchmarks` | Which index fund stands in for each equity category's benchmark |
+| `check_links` | Whether to check the official websites each night (default on) |
 
 ## Tests
 
@@ -176,9 +208,10 @@ Edit `pipeline/config.json`:
 pip install -r pipeline/requirements-dev.txt
 python -m pytest pipeline/tests
 node --test sheets/tests/*.test.js    # both Apps Scripts (Sheet sync and Drive archive), against simulated Google services
+node --test tests/*.test.js           # the in-browser CAS reader, against a made-up statement
 ```
 
-The nightly workflow runs the pipeline tests before every build, and pull requests run both sets. If AMFI changes its format again in a way the parser can't handle, the build fails loudly rather than publishing wrong numbers, and yesterday's site stays up.
+The nightly workflow runs the pipeline tests before every build, and pull requests run all three sets. If AMFI changes its format again in a way the parser can't handle, the build fails loudly rather than publishing wrong numbers, and yesterday's site stays up.
 
 ## Limits
 

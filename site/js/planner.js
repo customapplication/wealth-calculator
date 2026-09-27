@@ -1,4 +1,4 @@
-/* Corpus planner: SIP, step-up SIP and SWP calculator (the Plan page). */
+/* The Plan page: SIP, step-up SIP and SWP calculator. */
 (() => {
 'use strict';
 
@@ -362,7 +362,7 @@ const schedule = () => { clearTimeout(timer); timer = setTimeout(recalc, 80); };
    ===================================================================== */
 function renderAll() {
   renderChips(); syncOutputs(); renderBanner(); renderStatement(); renderPills();
-  renderChart(); renderFigures(); renderNotes(); renderCompare(); renderLedger(); renderLogic(); renderCodeStatus();
+  renderChart(); renderLegend(); renderMix(); renderFigures(); renderNotes(); renderCompare(); renderLedger(); renderLogic(); renderCodeStatus();
   renderSum();
 }
 // One line at the top of the input panel on phones, so the result stays in view while editing.
@@ -411,33 +411,105 @@ function renderBanner() {
 const inp = (key, text) => `<button type="button" class="in" data-focus="${key}">${text}</button>`;
 function renderStatement() {
   const r = sel(); if (!r) return;
-  const p = r.p, s = r.res.summary, i = results.indexOf(r);
-  const st = $('#statement');
-  st.style.setProperty('--sc', colorVar(i));
-  const existing = p.existingCorpus > 0 ? `your ${inp('existingCorpus', cmp(p.existingCorpus))} today plus ` : '';
+  const p = r.p, s = r.res.summary;
+  const existing = p.existingCorpus > 0 ? `I already have ${inp('existingCorpus', cmp(p.existingCorpus))} invested. ` : '';
   const step = p.stepUpValue > 0
-    ? `, raised ${inp('stepUpValue', p.stepUpType === 'pct' ? fmtNum(p.stepUpValue) + '%' : full(p.stepUpValue))} every year${p.stepUpCap > 0 ? ` up to ${inp('stepUpCap', cmp(p.stepUpCap))}` : ''},`
-    : '';
+    ? `, raise it by ${inp('stepUpValue', p.stepUpType === 'pct' ? fmtNum(p.stepUpValue) + '%' : full(p.stepUpValue))} every year${p.stepUpCap > 0 ? ` until it reaches ${inp('stepUpCap', cmp(p.stepUpCap))}` : ''},`
+    : ` (${inp('stepUpValue', 'no yearly raise')})`;
   const age = ageAt(p.sipYears);
-  st.innerHTML = `At <span class="rate">${fmtNum(r.rate)}%</span> a year, ${existing}${inp('monthlySip', full(p.monthlySip))} a month${step} for ${inp('sipYears', plural(p.sipYears, 'year'))} grows to <span class="out">${cmp(s.corpusAtSipEnd)}</span>${age != null ? ` by age ${age}` : ''}.`;
+  $('#planSentence').innerHTML = `${existing}I invest ${inp('monthlySip', full(p.monthlySip))} a month${step} and keep going for ${inp('sipYears', plural(p.sipYears, 'year'))}.`;
+
+  const endYear = new Date().getFullYear() + p.sipYears;
+  const real = s.corpusAtSipEnd / Math.pow(1 + p.inflation / 100, p.sipYears);
+  $('#resultLead').textContent = `At ${fmtNum(r.rate)}% a year, in ${endYear}${age != null ? ` (age ${age})` : ''} you'd have`;
+  $('#statement').textContent = cmp(s.corpusAtSipEnd);
+  $('#resultLine').innerHTML = `That buys what <b>${cmp(real)}</b> buys today, if prices rise ${inp('inflation', fmtNum(p.inflation) + '%')} a year. You'd have put in <b>${cmp(s.totalInvested)}</b>.`;
 
   const s2 = $('#statement2');
-  if (!p.swpEnabled) { s2.innerHTML = `Turn on withdrawals (SWP) on the left to see how long this corpus can pay you a monthly income.`; return; }
+  if (!p.swpEnabled) { s2.innerHTML = `<button type="button" class="linkish add-swp" data-swp-on>Add money I'll take out later</button>`; return; }
   const startYear = p.sipYears + p.swpGapYears;
   const startAge = ageAt(startYear);
   const when = `from year ${startYear + 1}${startAge != null ? ` (age ${startAge})` : ''}` + (p.swpGapYears > 0 ? `, after a ${inp('swpGapYears', p.swpGapYears + '-year')} wait` : '');
   const raise = p.swpIncrease > 0 ? `, raised ${inp('swpIncrease', fmtNum(p.swpIncrease) + '%')} a year` : '';
   const o = outcome(r);
-  s2.innerHTML = `Withdrawing ${inp('swpMonthly', full(p.swpMonthly))} a month ${when}${raise}, it ` + (o.ok
+  s2.innerHTML = `Then I take out ${inp('swpMonthly', full(p.swpMonthly))} a month ${when}${raise}. At ${fmtNum(r.rate)}% it ` + (o.ok
     ? `lasts all ${inp('swpYears', plural(p.swpYears, 'year'))} and still leaves <span class="out">${cmp(s.finalCorpus)}</span>.`
     : (o.months > 0
-      ? `runs out after <span class="out bad">${yrsMo(o.months)}</span>${o.age != null ? `, around age ${o.age}` : ''}, short of the ${inp('swpYears', plural(p.swpYears, 'year'))} you planned.`
+      ? `runs out after <span class="out bad">${yrsMo(o.months)}</span>${o.age != null ? `, around age ${o.age}` : ''}, short of the ${inp('swpYears', plural(p.swpYears, 'year'))} planned.`
       : `<span class="out bad">can't cover even the first withdrawal</span>. Lower the amount or invest for longer.`));
 }
 function renderPills() {
   const cur = sel();
   $('#pills').innerHTML = results.map((r, i) =>
-    `<button type="button" class="pill" style="--c:${colorVar(i)}" data-rate="${r.rate}" aria-pressed="${r === cur}"><i></i>${fmtNum(r.rate)}%<small>${cmp(r.res.summary.corpusAtSipEnd)}</small></button>`).join('');
+    `<button type="button" class="rate-pill" style="--c:${colorVar(i)}" data-rate="${r.rate}" aria-pressed="${r === cur}" aria-label="Focus on ${fmtNum(r.rate)}% a year"><i></i>${fmtNum(r.rate)}%</button>`).join('');
+  $('#cmAllLbl').textContent = results.length === 1 ? 'The one return' : `All ${results.length} returns`;
+  $('#cmOneLbl').textContent = cur ? `Only ${fmtNum(cur.rate)}%` : 'Only this one';
+}
+function renderLegend() {
+  const cur = sel();
+  const real = state.valueMode === 'real';
+  const v = r => real ? r.res.summary.corpusAtSipEnd / Math.pow(1 + r.p.inflation / 100, r.p.sipYears) : r.res.summary.corpusAtSipEnd;
+  const rows = results.map((r, i) => ({ r, i })).sort((a, b) => b.r.rate - a.r.rate);
+  $('#planLegend').innerHTML = rows.map(({ r, i }) =>
+    `<li class="${r === cur ? 'on' : ''}" data-rate="${r.rate}"><span class="sw" style="--c:${colorVar(i)}"></span><span class="nm">${fmtNum(r.rate)}% a year</span><b>${cmp(v(r))}</b></li>`).join('') +
+    (cur ? `<li class="inv"><span class="sw" style="--c:var(--ink-3);height:0;border-top:2px dashed var(--ink-3);background:none"></span><span class="nm">Money you put in</span><b>${cmp(real ? (cur.years[cur.p.sipYears - 1] || {}).realInvested || 0 : cur.res.summary.totalInvested)}</b></li>` : '');
+}
+
+/* What the corpus at the end of the SIPs is made of: what you had, your SIP at its
+   starting amount, the yearly raises, and growth. Shown as a donut, pie or bars. */
+const MIX_TYPES = [['donut', 'Donut', 'donut'], ['pie', 'Pie', 'pie'], ['bar', 'Bars', 'hbar']];
+let mixType = window.MF ? MF.pref('planMix', 'donut', MIX_TYPES.map(x => x[0])) : 'donut', mixChart = null;
+function mixParts() {
+  const r = sel(); if (!r) return null;
+  const p = r.p, s = r.res.summary;
+  const sipMonths = r.res.months.filter(m => m.phase === 'sip');
+  const paid = sipMonths.reduce((t, m) => t + (m.contribution || 0), 0);
+  const base = Math.min(paid, p.monthlySip * sipMonths.filter(m => m.contribution > 0).length);
+  const parts = [
+    { name: 'What you have today', v: p.existingCorpus, c: 'var(--c5)' },
+    { name: `Your ${full(p.monthlySip)} a month`, v: base, c: 'var(--c2)' },
+    { name: p.stepUpType === 'pct' ? `The yearly ${fmtNum(p.stepUpValue)}% raises` : 'The yearly raises', v: Math.max(0, paid - base), c: 'var(--c6)' },
+    { name: `Growth at ${fmtNum(r.rate)}% a year`, v: s.corpusAtSipEnd - p.existingCorpus - paid, c: 'var(--c1)' }
+  ];
+  return { r, parts, total: s.corpusAtSipEnd };
+}
+function renderMix() {
+  const m = mixParts(); if (!m) return;
+  const box = $('#planMixBox');
+  $('#planMixTitle').textContent = `What your ${cmp(m.total)} is made of`;
+  if (mixChart) { mixChart.destroy(); mixChart = null; }
+  const neg = m.parts.some(x => x.v < -0.5);
+  const parts = m.parts.filter(x => x.v > 0.5);
+  const share = v => m.total > 0 ? v / m.total : 0;
+  $('#planMixLegend').innerHTML = m.parts.filter(x => Math.abs(x.v) > 0.5).map(x =>
+    `<li style="--c:${x.c}"><i></i><span class="nm">${esc(x.name)}</span><span class="v">${cmp(x.v)}</span><span class="s">${x.v > 0 ? Math.round(share(x.v) * 100) + '%' : ''}</span></li>`).join('');
+  $('#planMix .mix-body').classList.toggle('bars', mixType === 'bar' && !neg);
+  if (neg) { box.innerHTML = '<div class="chart-fallback">At this return the corpus ends up smaller than what you put in, so there is no growth to show.</div>'; return; }
+  if (typeof window.Chart === 'undefined') { box.innerHTML = '<div class="chart-fallback">The chart library did not load. The list has every figure.</div>'; return; }
+  if (!$('#planMixChart')) box.innerHTML = '<canvas id="planMixChart" role="img" aria-label="What the corpus is made of"></canvas>';
+  const col = x => cssVar(x.c.slice(4, -1));
+  const tip = { backgroundColor: cssVar('--sheet'), titleColor: cssVar('--ink'), bodyColor: cssVar('--ink-2'), borderColor: cssVar('--rule-2'), borderWidth: 1, padding: 10,
+    callbacks: { title: it => parts[it[0].dataIndex].name, label: ctx => ` ${cmp(parts[ctx.dataIndex].v)}, ${Math.round(share(parts[ctx.dataIndex].v) * 100)}%` } };
+  if (mixType === 'bar') {
+    box.style.height = (parts.length * 42 + 30) + 'px';
+    mixChart = new window.Chart($('#planMixChart'), {
+      type: 'bar',
+      data: { labels: parts.map(x => x.name), datasets: [{ data: parts.map(x => x.v), backgroundColor: parts.map(col), borderRadius: 4, borderSkipped: 'start', maxBarThickness: 22 }] },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: false, layout: { padding: { right: 44 } },
+        plugins: { legend: { display: false }, tooltip: tip, barValues: { format: v => Math.round(share(v) * 100) + '%', color: cssVar('--ink-2') } },
+        scales: { x: { grid: { color: cssVar('--rule') }, border: { display: false }, ticks: { color: cssVar('--muted'), maxTicksLimit: 4, callback: v => tick(v) } },
+          y: { grid: { display: false }, ticks: { color: cssVar('--ink-2'), autoSkip: false, font: { family: 'IBM Plex Sans', size: 12 } } } } }
+    });
+    return;
+  }
+  box.style.height = '';
+  mixChart = new window.Chart($('#planMixChart'), {
+    type: 'doughnut',
+    data: { labels: parts.map(x => x.name), datasets: [{ data: parts.map(x => x.v), backgroundColor: parts.map(col), borderColor: cssVar('--sheet'), borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, cutout: mixType === 'donut' ? '62%' : 0, layout: { padding: 4 },
+      plugins: { legend: { display: false }, tooltip: tip,
+        donutCenter: { text: Math.round(share(Math.max(0, m.total - m.parts[0].v - m.parts[1].v - m.parts[2].v)) * 100) + '%', caption: 'growth', color: cssVar('--ink'), sub: cssVar('--muted'), size: 18 } } }
+  });
 }
 
 /* chart */
@@ -547,7 +619,7 @@ function renderChart() {
       interaction: { mode: 'index', intersect: false },
       layout: { padding: { top: 4, right: 4 } },
       plugins: {
-        legend: { position: 'bottom', labels: { color: ink2, usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, padding: narrow ? 10 : 16, font: { family: 'IBM Plex Sans', size: narrow ? 11.5 : 12.5 } } },
+        legend: { display: state.chartMode === 'one', position: 'bottom', labels: { color: ink2, usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, padding: narrow ? 10 : 16, font: { family: 'IBM Plex Sans', size: narrow ? 11.5 : 12.5 } } },
         tooltip: {
           backgroundColor: sheet, titleColor: ink, bodyColor: ink2, borderColor: rule2, borderWidth: 1, padding: 10, boxPadding: 4, usePointStyle: true,
           titleFont: { family: 'IBM Plex Sans', weight: '600', size: 13 }, bodyFont: { family: 'IBM Plex Sans', size: 12.5 },
@@ -846,6 +918,10 @@ function pushStateToInputs() {
   $$('#view-plan input[type=radio]').forEach(el => { if (el.name in state) el.checked = String(state[el.name]) === el.value; });
 }
 function bindControls() {
+  if (window.MF && $('#planMixType')) {
+    MF.typeSwitch($('#planMixType'), { label: 'Chart type', value: mixType, types: MIX_TYPES,
+      onChange: v => { mixType = v; MF.setPref('planMix', v); renderMix(); } });
+  }
   if (window.MF && $('#planType')) {
     MF.typeSwitch($('#planType'), { label: 'Chart type', value: planType, types: PLAN_TYPES,
       onChange: v => { planType = v; MF.setPref('plan', v); renderChart(); } });
@@ -875,7 +951,7 @@ function bindControls() {
         $('[data-key="swpReturnValue"]').value = state.swpReturnValue;
       }
       syncOutputs();
-      if (k === 'chartMode' || k === 'valueMode') { renderChart(); save(); }
+      if (k === 'chartMode' || k === 'valueMode') { renderChart(); renderLegend(); save(); }
       else schedule();
     });
   });
@@ -910,10 +986,18 @@ function bindControls() {
   $('#view-plan').addEventListener('click', e => {
     const f = e.target.closest('[data-focus]');
     if (f) {
-      const el = $(`#view-plan [data-key="${f.dataset.focus}"]`);
-      if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.focus({ preventScroll: true }); if (el.select && el.type === 'number') el.select(); }
+      const sel = `[data-key="${f.dataset.focus}"]`;
+      if (window.Shell) window.Shell.openPanel('planRail', sel);
+      else { const el = $('#view-plan ' + sel); if (el) el.focus(); }
       return;
     }
+    if (e.target.closest('[data-swp-on]')) {
+      state.swpEnabled = true; pushStateToInputs(); syncOutputs(); recalc();
+      if (window.Shell) window.Shell.openPanel('planRail', '[data-key="swpMonthly"]');
+      return;
+    }
+    const lg = e.target.closest('#planLegend li[data-rate]');
+    if (lg) { pickRate(+lg.dataset.rate); return; }
     const g = e.target.closest('[data-goto]');
     if (g) { selectTab(g.dataset.goto); $('#view-plan .tabs').scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
     if (e.target.closest('[data-restore]')) restoreCode();
@@ -935,7 +1019,7 @@ function bindControls() {
     openYear = null; $('#rateMsg').textContent = '';
     pushStateToInputs(); recalc();
   });
-  document.addEventListener('mf:theme', () => renderChart());
+  document.addEventListener('mf:theme', () => { renderChart(); renderMix(); });
 }
 function selectTab(t) {
   if (!['ledger', 'logic', 'engine'].includes(t)) t = 'ledger';

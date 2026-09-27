@@ -41,7 +41,7 @@ test('ping answers with the epoch and the Sheet URL', () => {
   assert.equal(r.ok, true);
   assert.match(r.epoch, /^e[0-9a-z]{8,}$/);
   assert.equal(r.sheetUrl, 'https://docs.google.com/spreadsheets/d/TEST-SHEET/edit');
-  assert.equal(r.version, 1);
+  assert.equal(r.version, 2);
 });
 
 test("a first sync stores the device's records and says to resync", () => {

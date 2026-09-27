@@ -1,7 +1,7 @@
 /** @OnlyCurrentDoc */
 
 /**
- * Google Sheet sync for Corpus planner, v1.
+ * Google Sheet sync for SIPs, v2.
  *
  * Keeps your plan and your portfolio in a Google Sheet that you own, and in
  * step across every browser you connect: a web app bound to the Sheet, a
@@ -23,8 +23,9 @@
  *        Who has access:  Anyone
  *   5. Authorise. "Google hasn't verified this app" is expected: the app is the
  *      script you just pasted. Advanced -> Go to (project name) -> Allow.
- *   6. Copy the web app URL (it ends in /exec). On the site, open My portfolio
- *      -> Google Sheet, paste the URL and the secret, and press Connect.
+ *   6. Copy the web app URL (it ends in /exec). On the site, open Google Sheet
+ *      (in the menu, or Portfolio -> Sync and backup on a phone), paste the URL
+ *      and the secret, and press Connect.
  *   7. Do step 6 on every device you use, with the same URL and secret.
  *
  * AFTER CHANGING THIS FILE: Deploy -> Manage deployments -> Edit (pencil) ->
@@ -36,7 +37,8 @@
  *   _data (hidden tab), one row per record:
  *       key | c | id | at | del | rev | json1 .. json8
  *     c     holdings (one investment), settings (the plan; the statement's
- *           notes), snapshot (the latest valuation, for the Portfolio tab)
+ *           notes; your benchmark choices), snapshot (the latest valuation,
+ *           for the Portfolio tab)
  *     at    when the record last changed, in milliseconds. The newest wins.
  *     del   1 when the record was deleted. The row stays so the deletion
  *           reaches every device instead of a device putting it back.
@@ -55,7 +57,7 @@
  */
 
 var APP = 'corpus-planner';
-var VERSION = 1;
+var VERSION = 2;
 var MIN_SECRET = 16;
 
 var DATA = '_data';
@@ -80,10 +82,10 @@ function secret_() {
   return s.length >= MIN_SECRET ? s : '';
 }
 
-/** Adds a "Corpus planner" menu to the Sheet for the occasional manual job. */
+/** Adds a "SIPs" menu to the Sheet for the occasional manual job. */
 function onOpen() {
   try {
-    SpreadsheetApp.getUi().createMenu('Corpus planner')
+    SpreadsheetApp.getUi().createMenu('SIPs')
       .addItem('Refresh the readable tabs', 'REFRESH_TABS')
       .addItem('Check that this Sheet stores data exactly', 'TEST_STORAGE')
       .addSeparator()
@@ -93,7 +95,7 @@ function onOpen() {
 }
 
 function doGet() {
-  return out_({ ok: true, app: APP, version: VERSION, msg: 'Corpus planner sync is running. The site talks to it with POST requests.' });
+  return out_({ ok: true, app: APP, version: VERSION, msg: 'SIPs sync is running. The site talks to it with POST requests.' });
 }
 
 function doPost(e) {
@@ -350,7 +352,8 @@ var TXN_TYPES = {
   SWITCH_IN: 'Switch in', SWITCH_OUT: 'Switch out', SWITCH_IN_MERGER: 'Switch in (merger)',
   SWITCH_OUT_MERGER: 'Switch out (merger)', DIVIDEND_PAYOUT: 'IDCW paid out',
   DIVIDEND_REINVEST: 'IDCW reinvested', STAMP_DUTY_TAX: 'Stamp duty', STT_TAX: 'STT',
-  TDS_TAX: 'TDS', REVERSAL: 'Reversal', SEGREGATION: 'Segregation', MISC: 'Other'
+  TDS_TAX: 'TDS', REVERSAL: 'Reversal', SEGREGATION: 'Segregation', BONUS: 'Bonus units',
+  TRANSFER_IN: 'Transfer in', TRANSFER_OUT: 'Transfer out', MISC: 'Other'
 };
 
 // The planner's own wording for each input, in the order the page shows them.
@@ -413,7 +416,7 @@ function portfolioTab_(latest) {
   var headers = ['Investment', 'Kind', 'Units', 'Put in, net (₹)', 'Worth (₹)', 'Gain (₹)', 'XIRR', 'NAV date', 'Note'];
   var rows = [];
   if (!snap) {
-    rows.push(pad_(['Open My portfolio on the site to value your investments here.'], headers.length));
+    rows.push(pad_(['Open the site to value your investments here.'], headers.length));
     return tab_('Portfolio', headers, rows, null);
   }
   (snap.rows || []).forEach(function (r) {
@@ -428,25 +431,27 @@ function portfolioTab_(latest) {
   if (!rows.length) rows.push(pad_(['No investments yet.'], headers.length));
   rows.push(pad_([''], headers.length));
   rows.push(pad_(['Valued ' + stamp_(latest.at) + (snap.navDate ? ', using NAVs up to ' + snap.navDate : '') +
-                  '. The site values your portfolio each time you open My portfolio.'], headers.length));
+                  '. The site values your portfolio each time you open it.'], headers.length));
   tab_('Portfolio', headers, rows, ['@', '@', '#,##0.000', '#,##0', '#,##0', '#,##0', '0.00%', 'd mmm yyyy', '@']);
 }
 
 function investmentsTab_(list) {
   var headers = ['Fund', 'Kind', 'Scheme code', 'ISIN', 'Amount (₹)', 'Debit day', 'First SIP', 'Stopped',
-                 'Raised every year (%)', 'Date invested', 'Folio', 'Transactions', 'Units in statement', 'Last changed'];
+                 'Raised every year (%)', 'Date invested', 'Folio', 'Transactions', 'Units in statement', 'Last changed',
+                 'Fund house', 'Goal'];
   var rows = list.map(function (x) {
     var h = x.h, sip = h.kind === 'sip', lump = h.kind === 'lump', cas = h.kind === 'cas';
     return [
       text_(h.name), KIND[h.kind] || text_(h.kind), num_(h.code), text_(h.isin),
       sip || lump ? num_(h.amount) : '', sip ? num_(h.day) : '', sip ? month_(h.start) : '', sip ? month_(h.end) : '',
       sip ? num_(h.step) : '', lump ? day_(h.date) : '', cas ? text_(h.folio) : '',
-      cas ? (h.txns || []).length : '', cas ? num_(h.closeUnits) : '', new Date(x.at)
+      cas ? (h.txns || []).length : '', cas ? num_(h.closeUnits) : '', new Date(x.at),
+      text_(h.amc), text_(h.goal)
     ];
   });
-  if (!rows.length) rows.push(pad_(['No investments yet. Add them on the site, under My portfolio.'], headers.length));
+  if (!rows.length) rows.push(pad_(['No investments yet. Add them on the site, under Portfolio.'], headers.length));
   tab_('Investments', headers, rows, ['@', '@', '0', '@', '#,##0', '0', 'mmm yyyy', 'mmm yyyy', '0.##', 'd mmm yyyy',
-                                      '@', '0', '#,##0.000', 'd mmm yyyy h:mm']);
+                                      '@', '0', '#,##0.000', 'd mmm yyyy h:mm', '@', '@']);
 }
 
 function transactionsTab_(list) {
@@ -586,7 +591,7 @@ function resetEverything_() {
 }
 
 /**
- * Run from the editor, or the Corpus planner menu, to check that this Sheet
+ * Run from the editor, or the SIPs menu, to check that this Sheet
  * keeps the site's data exactly: awkward values go through the same write and
  * read as real records, including a record long enough to need several cells.
  */

@@ -31,3 +31,6 @@ jobs:
 
       - name: Google Sheet script tests
         run: node --test sheets/tests/*.test.js
+
+      - name: CAS reader tests
+        run: node --test tests/*.test.js

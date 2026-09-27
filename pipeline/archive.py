@@ -4,7 +4,7 @@ Apps Script (sheets/Archive.gs).
 Every night the NAVAll.txt that was downloaded goes up gzipped, named by the
 day it was downloaded (IST):
 
-    Corpus planner archive/NAVAll/2026/09/NAVAll-2026-09-26.txt.gz
+    SIPs archive/NAVAll/2026/09/NAVAll-2026-09-26.txt.gz
 
 Once a month, and whenever Drive has no copy yet, the tracked funds' full NAV
 history (.cache/nav/*.json and .cache/index.json) goes up as a few .tar.gz

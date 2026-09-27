@@ -3,24 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Corpus planner</title>
-<meta name="description" content="Plan SIPs and SWPs, rank Indian mutual funds from AMFI NAVs, and track your own portfolio.">
+<title>SIPs</title>
+<meta name="description" content="Track your mutual fund SIPs, compare Indian mutual funds using AMFI's own NAVs, and plan SIPs and SWPs.">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#F1F4F0" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0E1526" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F2F3F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B1020" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Corpus">
+<meta name="apple-mobile-web-app-title" content="SIPs">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script>try{var t=localStorage.getItem('corpus-planner:theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Latin:wdth,wght@75..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="css/app.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script src="vendor/chartjs/chart.umd.js"></script>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -43,33 +43,394 @@
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.6l4.4 4.4L19 7.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-chev" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 10.8 12 4l8.5 6.8V19a1 1 0 0 1-1 1h-5v-6h-5v6h-5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 7V5.2A2.2 2.2 0 0 1 10.2 3h3.6A2.2 2.2 0 0 1 16 5.2V7M3 12h18" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m15.4 8.6-2 5-4.8 1.8 2-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M3.5 20h17M6.5 16v-3.5M11.5 16V9M16.5 16V5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3v5h5M12 18v-6M9.5 14.5 12 12l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-sheet" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 9h16M4 15h16M10 9v12" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-okcircle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8.2 12.4 2.5 2.5 5.1-5.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5.5 8.5 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5.5 15.5 12 9 18.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-compare" viewBox="0 0 24 24"><path d="M3.5 20h17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m4.5 15 4.5-5 4 3 6.5-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="m4.5 17.5 5-2.5 4 1 6.5-4" fill="none" stroke="currentColor" stroke-opacity=".5" stroke-width="1.7" stroke-linecap="round" stroke-dasharray="2 2.6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.1 7.1a1 1 0 0 1-1.4 0z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></symbol>
   </defs>
 </svg>
+<a class="skip" href="#main">Skip to the page</a>
 <div class="app">
-  <header class="top">
-    <a class="brand" href="#plan">
-      <img class="brand-mark" src="icons/icon.svg" alt="" width="38" height="38">
-      <span class="brand-text"><h1>Corpus planner</h1><span class="brand-tag">Indian mutual funds, from AMFI's own NAVs</span></span>
-    </a>
-    <nav class="views" aria-label="Pages">
-      <a href="#plan" data-view="plan"><svg class="ic" aria-hidden="true"><use href="#i-plan"/></svg><span>Plan</span></a>
-      <a href="#explore" data-view="explore"><svg class="ic" aria-hidden="true"><use href="#i-explore"/></svg><span>Explore funds</span></a>
-      <a href="#portfolio" data-view="portfolio"><svg class="ic" aria-hidden="true"><use href="#i-portfolio"/></svg><span>My portfolio</span></a>
+  <aside class="sidenav" aria-label="SIPs">
+    <a class="brand" href="#home"><svg class="logo" viewBox="0 0 30 30" aria-hidden="true"><rect width="30" height="30" rx="9" class="logo-bg"/><rect x="7" y="16" width="4" height="7" rx="2" class="logo-fg"/><rect x="13" y="12" width="4" height="11" rx="2" class="logo-fg"/><rect x="19" y="7" width="4" height="16" rx="2" class="logo-fg"/></svg><span>SIPs</span></a>
+    <nav class="nav" aria-label="Pages">
+        <a href="#home" data-view="home"><svg class="ic" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></a>
+        <a href="#portfolio" data-view="portfolio"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg><span>Portfolio</span></a>
+        <a href="#explore" data-view="explore"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg><span>Explore funds</span></a>
+        <a href="#plan" data-view="plan"><svg class="ic" aria-hidden="true"><use href="#i-bars"/></svg><span>Plan</span></a>
     </nav>
-    <div class="top-actions">
-      <a href="#portfolio" class="btn-quiet sync-chip" id="syncChip" hidden><span class="dot" aria-hidden="true"></span><span id="syncChipText">Saved to Sheet</span></a>
-      <button type="button" class="btn-icon" id="themeToggle" aria-label="Switch to the dark theme"><svg class="ic on-light" aria-hidden="true"><use href="#i-moon"/></svg><svg class="ic on-dark" aria-hidden="true"><use href="#i-sun"/></svg></button>
+    <div class="nav-foot">
+      <button type="button" class="sync-card" data-open-panel="panelSheet" id="syncCard">
+        <span class="sc-top"><svg class="ic" aria-hidden="true"><use href="#i-sheet"/></svg><span id="syncCardTitle">Google Sheet</span></span>
+        <span class="sc-sub" id="syncCardSub">Not connected. Keep your data on every device.</span>
+      </button>
+      <button type="button" class="nav-btn theme-toggle" aria-label="Switch to the dark theme"><svg class="ic on-light" aria-hidden="true"><use href="#i-moon"/></svg><svg class="ic on-dark" aria-hidden="true"><use href="#i-sun"/></svg><span class="on-light">Dark theme</span><span class="on-dark">Light theme</span></button>
     </div>
-  </header>
+  </aside>
 
-  <section class="view" id="view-plan" data-view="plan">
-    <div class="view-bar">
-      <p>SIP, step-up SIP and SWP, calculated month by month</p>
-      <button type="button" class="btn-quiet" id="resetInputs">Reset inputs</button>
+  <main class="main" id="main" tabindex="-1">
+
+  <!-- ============================== Home ============================== -->
+  <section class="view" id="view-home" data-view="home">
+    <header class="vhead">
+      <a class="brand phone-only" href="#home"><svg class="logo" viewBox="0 0 30 30" aria-hidden="true"><rect width="30" height="30" rx="9" class="logo-bg"/><rect x="7" y="16" width="4" height="7" rx="2" class="logo-fg"/><rect x="13" y="12" width="4" height="11" rx="2" class="logo-fg"/><rect x="19" y="7" width="4" height="16" rx="2" class="logo-fg"/></svg><span>SIPs</span></a>
+      <h1 class="vtitle desk-only">Home</h1>
+      <div class="vhead-actions">
+        <a href="#portfolio" class="sync-chip" id="syncChip" hidden><svg class="ic" aria-hidden="true"><use href="#i-okcircle"/></svg><span id="syncChipText">Sheet synced</span></a>
+        <span class="phone-only"><button type="button" class="btn-icon theme-toggle" aria-label="Switch to the dark theme"><svg class="ic on-light" aria-hidden="true"><use href="#i-moon"/></svg><svg class="ic on-dark" aria-hidden="true"><use href="#i-sun"/></svg></button></span>
+      </div>
+    </header>
+
+    <div id="homeEmpty" class="welcome" hidden>
+      <h2>Your SIPs, all in one place</h2>
+      <p>Import your CAMS + KFintech statement to see every fund you hold, what you've put in, what it's worth and how fast it's growing. The statement is read on this device and never uploaded.</p>
+      <div class="btn-row">
+        <button type="button" class="btn" data-open-panel="panelImport"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Import your statement</button>
+        <button type="button" class="btn quiet" data-open-panel="panelAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add a SIP by hand</button>
+      </div>
+      <div class="welcome-links">
+        <a href="#explore"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg><span><b>Explore funds</b><small>Rank any category from AMFI's NAVs</small></span></a>
+        <a href="#plan"><svg class="ic" aria-hidden="true"><use href="#i-bars"/></svg><span><b>Plan</b><small>What a SIP could grow to</small></span></a>
+      </div>
     </div>
-  <div class="layout">
-    <aside class="rail" id="planRail" aria-label="Plan inputs">
-      <div class="drawer-head"><div class="dh-text"><b>Edit your plan</b><span class="dh-sum" id="planSum" aria-live="polite"></span></div><button type="button" class="btn-main" data-drawer-close>Done</button></div>
+
+    <div id="homeBody" hidden>
+      <section class="hero">
+        <div class="hero-main">
+          <span class="eyebrow" id="homeAsOf">Worth today</span>
+          <span class="big fig" id="homeWorth">—</span>
+          <span class="hero-line"><span id="homeGain"></span> <span class="muted" id="homeIn"></span></span>
+          <span class="xirr-chip" id="homeXirr" hidden></span>
+        </div>
+        <div class="hero-actions desk-only">
+          <button type="button" class="btn quiet" data-open-panel="panelImport"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Import statement</button>
+          <button type="button" class="btn" data-open-panel="panelAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add a SIP</button>
+        </div>
+      </section>
+
+      <div class="grid">
+        <section class="card span8" id="homeGrowth">
+          <div class="card-head">
+            <h2>Growth</h2>
+            <div class="row"><div class="legend-mini"><span><i class="ln"></i>Worth</span><span><i class="ln dash"></i>Money put in</span></div><div class="seg" role="radiogroup" aria-label="Period" id="homeRange"></div></div>
+          </div>
+          <div class="chart-box" id="homeChartBox"><canvas id="homeChart" role="img" aria-label="Worth and money put in over time"></canvas></div>
+        </section>
+
+        <section class="card span4" id="homeNext">
+          <div class="card-head"><h2>Next SIPs</h2><span class="muted small" id="homeNextSum"></span></div>
+          <ul class="next-list" id="homeNextList"></ul>
+          <a class="card-link" href="#portfolio" id="homeNextAll">See your investments<svg class="ic" aria-hidden="true"><use href="#i-right"/></svg></a>
+        </section>
+
+        <section class="card span8 desk-only" id="homeTableCard">
+          <div class="card-head"><h2>Your investments</h2><span class="muted small">By category</span></div>
+          <div class="scroll"><table class="tbl" id="homeTable"></table></div>
+        </section>
+
+        <section class="card span4" id="homeMix">
+          <div class="card-head">
+            <h2>What you hold</h2>
+            <div class="field mix-by"><span class="lbl sr-only">Group by</span><span class="box sel"><select id="pfMixBy">
+              <option value="cat" data-label="By category">By category</option>
+              <option value="asset" data-label="By asset class">By asset class</option>
+              <option value="amc" data-label="By fund house">By fund house</option>
+              <option value="fund" data-label="By fund">By fund</option>
+            </select></span></div>
+          </div>
+          <div class="mix-body">
+            <div class="chart-box mix-chart" id="pfMixBox"><canvas id="pfMixChart" role="img" aria-label="What you hold, by share of today's worth"></canvas></div>
+            <ul class="mix-legend" id="pfMixLegend"></ul>
+          </div>
+          <div class="mix-type"><div id="pfMixType"></div></div>
+        </section>
+      </div>
+
+      <section class="quick phone-only" aria-label="Quick actions">
+        <button type="button" class="act" data-open-panel="panelImport"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Import statement</button>
+        <button type="button" class="act" data-open-panel="panelAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add a SIP</button>
+        <a class="act" href="#explore"><svg class="ic" aria-hidden="true"><use href="#i-compare"/></svg>Compare funds</a>
+      </section>
+    </div>
+  </section>
+
+  <!-- ============================== Portfolio ============================== -->
+  <section class="view" id="view-portfolio" data-view="portfolio" hidden>
+    <header class="vhead">
+      <h1 class="vtitle">Portfolio</h1>
+      <div class="vhead-actions">
+        <button type="button" class="btn quiet sm" data-open-panel="panelImport"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Import</button>
+        <button type="button" class="btn sm" data-open-panel="panelAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add</button>
+      </div>
+    </header>
+
+    <div id="pfEmpty" class="welcome" hidden>
+      <h2>Nothing here yet</h2>
+      <p>Import your CAMS + KFintech statement for exact units and every transaction, or add a SIP by hand and it's valued with AMFI NAVs from its first instalment.</p>
+      <div class="btn-row">
+        <button type="button" class="btn" data-open-panel="panelImport"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>Import your statement</button>
+        <button type="button" class="btn quiet" data-open-panel="panelAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add a SIP by hand</button>
+      </div>
+    </div>
+
+    <div id="pfBody" hidden>
+      <section class="card figs4" id="pfFigures" aria-live="polite"></section>
+
+      <section class="card" id="pfChartWrap">
+        <div class="card-head wrap">
+          <div class="field pf-scope"><span class="lbl sr-only">Show on the chart</span><span class="box sel"><select id="pfScope"></select></span></div>
+          <div class="row wrap">
+            <div class="seg" role="radiogroup" aria-label="Chart view">
+              <label><input type="radio" name="pf-mode" value="value" checked><span>Worth and money in</span></label>
+              <label><input type="radio" name="pf-mode" value="gain"><span>Gain</span></label>
+            </div>
+            <div id="pfType"></div>
+          </div>
+        </div>
+        <div class="chart-box" id="pfChartBox"><canvas id="pfChart" role="img" aria-label="Portfolio value over time"></canvas></div>
+      </section>
+
+      <div class="group-by">
+        <span class="lbl" id="pfGroupLbl">Group by</span>
+        <div class="pills" role="radiogroup" aria-labelledby="pfGroupLbl" id="pfGroupBy">
+          <label><input type="radio" name="pf-group" value="cat"><span>Category</span></label>
+          <label><input type="radio" name="pf-group" value="amc"><span>Fund house</span></label>
+          <label><input type="radio" name="pf-group" value="plan"><span>Plan</span></label>
+          <label><input type="radio" name="pf-group" value="goal"><span>Goal</span></label>
+        </div>
+      </div>
+      <div id="pfGroups" class="groups"></div>
+      <div id="pfNotes"></div>
+
+      <section class="card info-card" id="pfStatementCard" hidden>
+        <div class="ic-row"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><div><b>From your CAMS + KFintech statement</b><span id="pfStatementText"></span></div></div>
+        <button type="button" class="btn wide" data-open-panel="panelImport">Import a newer statement</button>
+      </section>
+    </div>
+
+    <div class="grid two">
+      <section class="card list-card" id="pfAccounts">
+        <h2>Log in to your accounts</h2>
+        <ul class="link-list" id="pfPortals">
+          <li><a href="https://www.mfcentral.com/" target="_blank" rel="noopener"><span><b>MF Central</b><small>Every folio across fund houses, one login with your PAN</small></span><svg class="ic" aria-hidden="true"><use href="#i-out"/></svg></a></li>
+          <li><a href="https://www.camsonline.com/" target="_blank" rel="noopener"><span><b>CAMS</b><small>Registrar for many fund houses</small></span><svg class="ic" aria-hidden="true"><use href="#i-out"/></svg></a></li>
+          <li><a href="https://mfs.kfintech.com/" target="_blank" rel="noopener"><span><b>KFintech</b><small>Registrar for the other fund houses</small></span><svg class="ic" aria-hidden="true"><use href="#i-out"/></svg></a></li>
+        </ul>
+        <p class="muted small">Each fund's own fund house is linked from its card above.</p>
+      </section>
+      <section class="card list-card">
+        <h2>Sync and backup</h2>
+        <p class="muted" id="pfBackupNote">Your portfolio is saved only in this browser. Nothing is uploaded, and the site's public data never includes it.</p>
+        <div class="btn-row">
+          <button type="button" class="btn quiet sm" data-open-panel="panelSheet"><svg class="ic" aria-hidden="true"><use href="#i-sheet"/></svg>Google Sheet</button>
+          <button type="button" class="btn quiet sm" id="pfExport"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg>Download backup</button>
+          <label class="btn quiet sm">Restore a backup<input id="pfRestore" type="file" accept=".json,application/json" hidden></label>
+        </div>
+        <p><button type="button" class="linkish danger" id="pfClear">Remove everything</button></p>
+      </section>
+    </div>
+  </section>
+
+  <!-- ============================== Explore ============================== -->
+  <section class="view" id="view-explore" data-view="explore" hidden>
+    <header class="vhead stack">
+      <h1 class="vtitle">Explore funds</h1>
+      <span class="muted" id="exSub"></span>
+    </header>
+    <section class="card filters" id="exFilters">
+      <div class="combo multi" id="exPickBox">
+        <label class="search" for="exPick"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><span class="chips-in" id="exChips"></span><input id="exPick" type="search" placeholder="Add a category or a fund" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="exPickList"></label>
+        <ul id="exPickList" class="combo-list" role="listbox" aria-label="Categories and funds" hidden></ul>
+      </div>
+      <button type="button" class="filters-toggle" id="exToggle" aria-expanded="false" aria-controls="exFilterRow"><span>Filters</span><span class="muted small" id="exToggleSum"></span><svg class="ic chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <div class="filter-row" id="exFilterRow">
+        <div class="field"><span class="lbl" id="exPlanLbl">Plan</span>
+          <div class="seg" role="radiogroup" aria-labelledby="exPlanLbl">
+            <label><input type="radio" name="ex-plan" value="Direct"><span>Direct</span></label>
+            <label><input type="radio" name="ex-plan" value="Regular"><span>Regular</span></label>
+            <label><input type="radio" name="ex-plan" value="Both"><span>Both</span></label>
+          </div>
+        </div>
+        <div class="field"><label class="lbl" for="exTop">Show the top</label>
+          <div class="row"><span class="box num"><input id="exTop" type="number" min="1" max="999" step="1" inputmode="numeric" placeholder="All"></span>
+            <div class="seg" role="group" aria-label="Quick picks">
+              <button type="button" class="seg-btn" data-top="5">5</button><button type="button" class="seg-btn" data-top="10">10</button><button type="button" class="seg-btn" data-top="25">25</button><button type="button" class="seg-btn" data-top="50">50</button><button type="button" class="seg-btn" data-top="0">All</button>
+            </div></div>
+        </div>
+        <div class="field"><label class="lbl" for="exAge">Running for at least</label>
+          <span class="box num"><input id="exAge" type="number" min="0" max="40" step="1" inputmode="numeric" placeholder="0"><span class="post">years</span></span>
+        </div>
+        <div class="field ex-metric"><span class="lbl">Rank by</span><span class="box sel"><select id="exMetric"></select></span></div>
+        <div class="field ex-amc"><span class="lbl">Fund house</span><span class="box sel"><select id="exAmc"></select></span></div>
+        <button type="button" class="linkish" id="exReset">Reset filters</button>
+      </div>
+    </section>
+    <div class="ex-viewbar"><p class="ex-count" id="exCount" role="status"></p><div id="exView"></div></div>
+    <div id="exFresh" class="fresh"></div>
+    <section class="card flush" id="exResults">
+      <div class="scroll" id="exTableWrap"><table class="tbl funds" id="exTable"></table></div>
+      <ul class="fcards" id="exCards" aria-label="Funds, ranked"></ul>
+      <div class="ex-chart" id="exRankWrap" hidden><div class="chart-box auto" id="exRankBox"><canvas id="exRank" role="img" aria-label="Funds ranked, as bars"></canvas></div></div>
+    </section>
+    <p class="ex-more muted small" id="exMore"></p>
+    <section class="card" id="exDetail" hidden></section>
+    <section class="card">
+        <details class="method">
+          <summary>How these numbers are worked out</summary>
+          <p>Every figure comes from daily NAVs published by AMFI. Nothing is estimated or generated, and there is no AI involved.</p>
+          <ul>
+            <li><b>1-year return</b> is the change in NAV over the last year. <b>3, 5 and 10-year returns</b> are CAGR from the NAV on the same date N years ago (or the last working day before it) to the latest NAV.</li>
+            <li><b>Since launch</b> is CAGR from the first NAV. It's left blank for funds launched before April 2006, when AMFI's NAV history starts.</li>
+            <li><b>3Y rolling</b> is the median of every 3-year CAGR ending on each day the fund has 3 years of history. It depends much less on today's date than a single 3-year return. <b>Worst 3Y</b> is the lowest of those.</li>
+            <li><b>Beat peers</b> is the share of weekly 3-year periods in which the fund's return beat the median fund in the same category and plan.</li>
+            <li><b>Max fall 5Y</b> is the biggest drop from a peak to a later low within the last 5 years. <b>Volatility 3Y</b> is the annualised standard deviation of daily returns. <b>Sharpe 3Y</b> is the 3-year return minus a 6.5% risk-free rate, divided by volatility.</li>
+            <li>If a NAV needed for a figure is missing (a hole of more than 10 days in the data), the figure is left blank rather than guessed.</li>
+            <li>Rankings list only the Growth option. IDCW returns leave out the payouts, so they aren't comparable.</li>
+          </ul>
+          <p>A ranking sorts past results. It doesn't predict which fund will do best next, and it doesn't include expense ratios, fund size, portfolio overlap or who manages the fund, all of which matter when choosing.</p>
+        </details>
+    </section>
+    <div class="tray" id="cmpTray" hidden>
+      <div class="tray-text"><b id="cmpTrayCount"></b><span id="cmpTrayNames"></span></div>
+      <button type="button" class="linkish on-dark" id="cmpTrayClear">Clear</button>
+      <a class="btn" href="#compare" id="cmpTrayGo">Compare</a>
+    </div>
+  </section>
+
+  <!-- ============================== Compare ============================== -->
+  <section class="view" id="view-compare" data-view="compare" hidden>
+    <header class="vhead back">
+      <a class="btn-icon" href="#explore" aria-label="Back to Explore funds"><svg class="ic" aria-hidden="true"><use href="#i-back"/></svg></a>
+      <h1 class="vtitle">Compare funds</h1>
+    </header>
+    <div id="cmpEmpty" class="welcome" hidden>
+      <h2>Pick funds to compare</h2>
+      <p>On Explore funds, tick <b>Compare</b> on up to 5 funds from any category. You'll see how ₹10,000 grew in each, next to the typical fund in the category and its benchmark.</p>
+      <a class="btn" href="#explore"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg>Explore funds</a>
+    </div>
+    <div id="cmpBody" hidden>
+      <div class="seg wide-seg" role="radiogroup" aria-label="Period" id="cmpRange"></div>
+      <section class="card">
+        <div class="card-head stack"><h2 id="cmpTitle"></h2><span class="muted small" id="cmpSub"></span></div>
+        <div class="chart-box tall" id="cmpChartBox"><canvas id="cmpChart" role="img" aria-label="Growth of 10,000 rupees in each fund"></canvas></div>
+        <ul class="cmp-legend" id="cmpLegend"></ul>
+        <div class="cmp-add">
+          <div class="combo" id="cmpAddBox">
+            <label class="search" for="cmpAdd"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg><input id="cmpAdd" type="search" placeholder="Add another fund" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="cmpAddList"></label>
+            <ul id="cmpAddList" class="combo-list" role="listbox" aria-label="Funds" hidden></ul>
+          </div>
+        </div>
+      </section>
+      <section class="card flush"><div class="scroll"><table class="tbl facts" id="cmpFacts"></table></div></section>
+      <p class="muted small">Past returns don't predict future ones. Index values come from NSE, not AMFI, so an index fund's NAV stands in for each benchmark.</p>
+    </div>
+  </section>
+
+  <!-- ============================== Plan ============================== -->
+  <section class="view" id="view-plan" data-view="plan" hidden>
+    <header class="vhead">
+      <h1 class="vtitle">Plan</h1>
+      <div class="vhead-actions">
+        <button type="button" class="btn quiet sm" id="resetInputs">Reset</button>
+        <button type="button" class="btn sm" data-open-panel="planRail"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg>Edit plan</button>
+      </div>
+    </header>
+    <div id="banner"></div>
+    <section class="card sentence">
+      <p id="planSentence"></p>
+      <p id="statement2" class="sentence2"></p>
+    </section>
+    <section class="result">
+      <span class="eyebrow" id="resultLead"></span>
+      <span class="big fig" id="statement"></span>
+      <span class="result-line" id="resultLine"></span>
+    </section>
+    <section class="rates">
+      <span class="muted small">Yearly returns to try. Nobody knows the real one, so compare a few.</span>
+      <div class="rate-row"><div class="rate-pills" id="pills" role="group" aria-label="Choose a return to focus on"></div>
+        <button type="button" class="rate-add" data-open-panel="planRail" data-focus-sel="#newRate" aria-label="Add a return">+</button></div>
+    </section>
+    <div class="grid">
+      <section class="card span8">
+        <div class="card-head wrap">
+          <div class="seg" role="radiogroup" aria-label="Chart view">
+            <label><input type="radio" name="chartMode" value="all"><span id="cmAllLbl">All returns</span></label>
+            <label><input type="radio" name="chartMode" value="one"><span id="cmOneLbl">Only this one</span></label>
+          </div>
+          <div class="seg" role="radiogroup" aria-label="Amounts">
+            <label><input type="radio" name="valueMode" value="nominal"><span>Amounts then</span></label>
+            <label><input type="radio" name="valueMode" value="real"><span>In today's money</span></label>
+          </div>
+          <div id="planType"></div>
+        </div>
+        <div class="chart-box" id="chartBox"><canvas id="chart" role="img" aria-label="Chart of corpus growth by year"></canvas></div>
+        <ul class="plan-legend" id="planLegend"></ul>
+      </section>
+      <section class="card span4" id="planMix">
+        <div class="card-head"><h2 id="planMixTitle">What your corpus is made of</h2></div>
+        <div class="mix-body">
+          <div class="chart-box mix-chart" id="planMixBox"><canvas id="planMixChart" role="img" aria-label="What the corpus is made of"></canvas></div>
+          <ul class="mix-legend" id="planMixLegend"></ul>
+        </div>
+        <div class="mix-type"><div id="planMixType"></div></div>
+      </section>
+    </div>
+    <section class="card flush" id="figures"></section>
+    <section class="card"><div class="notes" id="notes"></div></section>
+    <section class="card">
+      <div class="card-head stack"><h2>Every return side by side</h2><span class="muted small">Select a row to focus on that return</span></div>
+      <div class="scroll"><table class="tbl pick" id="compare"></table></div>
+    </section>
+    <section class="card details">
+        <div class="tabs" role="tablist" aria-label="Details">
+          <button type="button" class="tab" role="tab" data-tab="ledger">Year-by-year ledger</button>
+          <button type="button" class="tab" role="tab" data-tab="logic">How it's calculated</button>
+          <button type="button" class="tab" role="tab" data-tab="engine">Edit the engine</button>
+        </div>
+
+        <div class="tabpanel" data-panel="ledger" role="tabpanel">
+          <div class="ledger-head"><span id="ledgerCaption"></span><button type="button" class="btn quiet sm" id="copyCsv">Copy as CSV</button></div>
+          <div class="scroll tall"><table class="pick" id="ledger"></table></div>
+        </div>
+
+        <div class="tabpanel" data-panel="logic" role="tabpanel" hidden><div id="logic"></div></div>
+
+        <div class="tabpanel" data-panel="engine" role="tabpanel" hidden>
+          <p class="lead">This is the exact function that produced every number on this page. Change it, press Apply changes (or Ctrl/⌘ + Enter), and the headline, chart, tables and ledger all re-run through your version. Your edits are saved in this browser only. Press Esc, then Tab, to move out of the editor.</p>
+          <div class="editor"><pre class="gutter" id="gutter" aria-hidden="true"></pre><textarea id="code" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off" aria-label="Engine source code"></textarea></div>
+          <div class="ed-actions">
+            <button type="button" class="btn sm" id="applyCode">Apply changes</button>
+            <button type="button" class="btn quiet sm" id="restoreCode">Restore original</button>
+            <span class="status" id="codeStatus" role="status"></span>
+          </div>
+          <div class="recipes">
+            <h4>Ideas to try</h4>
+            <p>Charge a 1% yearly fund expense. In step 1, replace both uses of <code>annualPct</code> with <code>(annualPct - 1)</code>.</p>
+            <pre class="formula">? annualPct / 100 / 12   →   ? (annualPct - 1) / 100 / 12</pre>
+            <p>Add a one-time lump sum of ₹5 lakh in month 36. Put this on the line after <code>let contribution = …</code>:</p>
+            <pre class="formula">if (m === 36) contribution += 500000;</pre>
+            <p>Skip every SIP in year 8, say for a sabbatical:</p>
+            <pre class="formula">if (phase === 'sip' &amp;&amp; Math.ceil(m / 12) === 8) contribution = 0;</pre>
+            <p>Withdraw 4% of the corpus each year instead of a fixed amount. Add this at the end of step 4:</p>
+            <pre class="formula">if (phase === 'swp' &amp;&amp; (swpMonth - 1) % 12 === 0) swp = corpus * 0.04 / 12;</pre>
+          </div>
+        </div>
+      
+    </section>
+    <p class="foot">Projections assume the same return every month. Real markets swing, and a crash in the first few years of withdrawals hurts far more than one later on, so read each SWP result as the outcome for a steady version of that return. Taxes, exit loads and fund expenses are not included unless you add them in the engine. This is a planning tool, not investment advice.</p>
+
+    <div class="panel" id="planRail" role="dialog" aria-modal="true" aria-labelledby="planRailTitle" hidden>
+      <div class="panel-head"><div class="ph-text"><b id="planRailTitle">Edit your plan</b><span class="ph-sum" id="planSum" aria-live="polite"></span></div><button type="button" class="btn sm" data-panel-close>Done</button></div>
+      <div class="panel-body">
       <section>
         <h2>What you invest</h2>
         <label class="field">
@@ -176,277 +537,139 @@
           </div>
         </div>
       </details>
-    </aside>
-
-    <main class="sheet" id="main">
-      <div class="block">
-        <div id="banner"></div>
-        <p class="statement" id="statement"></p>
-        <p class="statement2" id="statement2"></p>
-        <div class="chart-bar">
-          <div class="pills" id="pills" role="group" aria-label="Choose a return rate to explore"></div>
-          <div class="row wrap">
-            <div id="planType"></div>
-            <div class="seg" role="radiogroup" aria-label="Chart view">
-              <label><input type="radio" name="chartMode" value="all"><span>All rates</span></label>
-              <label><input type="radio" name="chartMode" value="one"><span>This rate</span></label>
-            </div>
-            <div class="seg" role="radiogroup" aria-label="Value shown">
-              <label><input type="radio" name="valueMode" value="nominal"><span>Future ₹</span></label>
-              <label><input type="radio" name="valueMode" value="real"><span>Today's ₹</span></label>
-            </div>
-          </div>
-        </div>
-        <div class="chart-box" id="chartBox"><canvas id="chart" role="img" aria-label="Chart of corpus growth by year"></canvas></div>
-      </div>
-
-      <div class="block flush" id="figures"></div>
-      <div class="block"><div class="notes" id="notes"></div></div>
-
-      <div class="block">
-        <h3>Every rate side by side<span class="sub">Select a row to explore that rate</span></h3>
-        <div class="scroll"><table class="pick" id="compare"></table></div>
-      </div>
-
-      <div class="block">
-        <div class="tabs" role="tablist" aria-label="Details">
-          <button type="button" class="tab" role="tab" data-tab="ledger">Year-by-year ledger</button>
-          <button type="button" class="tab" role="tab" data-tab="logic">How it's calculated</button>
-          <button type="button" class="tab" role="tab" data-tab="engine">Edit the engine</button>
-        </div>
-
-        <div class="tabpanel" data-panel="ledger" role="tabpanel">
-          <div class="panel-head"><span id="ledgerCaption"></span><button type="button" class="btn-quiet" id="copyCsv">Copy as CSV</button></div>
-          <div class="scroll tall"><table class="pick" id="ledger"></table></div>
-        </div>
-
-        <div class="tabpanel" data-panel="logic" role="tabpanel" hidden><div id="logic"></div></div>
-
-        <div class="tabpanel" data-panel="engine" role="tabpanel" hidden>
-          <p class="lead">This is the exact function that produced every number on this page. Change it, press Apply changes (or Ctrl/⌘ + Enter), and the headline, chart, tables and ledger all re-run through your version. Your edits are saved in this browser only. Press Esc, then Tab, to move out of the editor.</p>
-          <div class="editor"><pre class="gutter" id="gutter" aria-hidden="true"></pre><textarea id="code" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off" aria-label="Engine source code"></textarea></div>
-          <div class="ed-actions">
-            <button type="button" class="btn-main" id="applyCode">Apply changes</button>
-            <button type="button" class="btn-quiet" id="restoreCode">Restore original</button>
-            <span class="status" id="codeStatus" role="status"></span>
-          </div>
-          <div class="recipes">
-            <h4>Ideas to try</h4>
-            <p>Charge a 1% yearly fund expense. In step 1, replace both uses of <code>annualPct</code> with <code>(annualPct - 1)</code>.</p>
-            <pre class="formula">? annualPct / 100 / 12   →   ? (annualPct - 1) / 100 / 12</pre>
-            <p>Add a one-time lump sum of ₹5 lakh in month 36. Put this on the line after <code>let contribution = …</code>:</p>
-            <pre class="formula">if (m === 36) contribution += 500000;</pre>
-            <p>Skip every SIP in year 8, say for a sabbatical:</p>
-            <pre class="formula">if (phase === 'sip' &amp;&amp; Math.ceil(m / 12) === 8) contribution = 0;</pre>
-            <p>Withdraw 4% of the corpus each year instead of a fixed amount. Add this at the end of step 4:</p>
-            <pre class="formula">if (phase === 'swp' &amp;&amp; (swpMonth - 1) % 12 === 0) swp = corpus * 0.04 / 12;</pre>
-          </div>
-        </div>
-      </div>
-    </main>
-  </div>
-  <button type="button" class="fab" data-drawer-open="planRail" aria-expanded="false" aria-controls="planRail"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg>Edit plan</button>
-  <p class="foot">Projections assume the same return every month. Real markets swing, and a crash in the first few years of withdrawals hurts far more than one later on, so read each SWP result as the outcome for a steady version of that return. Taxes, exit loads and fund expenses are not included unless you add them in the engine. This is a planning tool, not investment advice.</p>
-  </section>
-
-  <section class="view" id="view-explore" data-view="explore" hidden>
-    <div class="sheet">
-      <div class="block">
-        <div id="exFresh" class="fresh"></div>
-        <div class="ex-filters" id="exFilters">
-          <div class="field ex-cat"><span class="lbl">Category</span><span class="box sel"><select id="exCat"></select></span></div>
-          <div class="field ex-metric"><span class="lbl">Rank by</span><span class="box sel"><select id="exMetric"></select></span></div>
-          <button type="button" class="ex-toggle" id="exToggle" aria-expanded="false" aria-controls="exExtra"><span>More filters</span><span class="ex-toggle-sum" id="exToggleSum"></span><svg class="ic chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
-          <div class="ex-extra" id="exExtra">
-          <div class="field"><span class="lbl" id="exPlanLbl">Plan</span>
-            <div class="seg block" role="radiogroup" aria-labelledby="exPlanLbl">
-              <label><input type="radio" name="ex-plan" value="Direct"><span>Direct</span></label>
-              <label><input type="radio" name="ex-plan" value="Regular"><span>Regular</span></label>
-            </div>
-          </div>
-          <div class="field"><span class="lbl" id="exTopLbl">Show</span>
-            <div class="seg block" role="radiogroup" aria-labelledby="exTopLbl">
-              <label><input type="radio" name="ex-top" value="5"><span>Top 5</span></label>
-              <label><input type="radio" name="ex-top" value="10"><span>10</span></label>
-              <label><input type="radio" name="ex-top" value="20"><span>20</span></label>
-              <label><input type="radio" name="ex-top" value="0"><span>All</span></label>
-            </div>
-          </div>
-          <div class="field"><span class="lbl" id="exAgeLbl">Running for at least</span>
-            <div class="seg block" role="radiogroup" aria-labelledby="exAgeLbl">
-              <label><input type="radio" name="ex-age" value="0"><span>Any</span></label>
-              <label><input type="radio" name="ex-age" value="3"><span>3 yrs</span></label>
-              <label><input type="radio" name="ex-age" value="5"><span>5 yrs</span></label>
-              <label><input type="radio" name="ex-age" value="10"><span>10 yrs</span></label>
-            </div>
-          </div>
-          <label class="field ex-q"><span class="lbl">Find a fund</span><span class="box"><svg class="ic pre-ic" aria-hidden="true"><use href="#i-search"/></svg><input id="exQ" type="search" placeholder="Name or fund house" autocomplete="off"></span></label>
-          </div>
-        </div>
-      </div>
-      <div class="block flush">
-        <div class="ex-viewbar"><span class="ex-count" id="exCount"></span><div id="exView"></div></div>
-        <div class="scroll" id="exTableWrap"><table class="pick funds" id="exTable"></table><ul class="fcards" id="exCards" aria-label="Funds, ranked"></ul></div>
-        <div class="ex-chart" id="exRankWrap" hidden><div class="chart-box auto" id="exRankBox"><canvas id="exRank" role="img" aria-label="Funds ranked, as bars"></canvas></div></div>
-        <p class="ex-more" id="exMore" role="status"></p>
-      </div>
-      <div class="block" id="exDetail" hidden></div>
-      <div class="block">
-        <details class="method">
-          <summary>How these numbers are worked out</summary>
-          <p>Every figure comes from daily NAVs published by AMFI. Nothing is estimated or generated, and there is no AI involved.</p>
-          <ul>
-            <li><b>1-year return</b> is the change in NAV over the last year. <b>3, 5 and 10-year returns</b> are CAGR from the NAV on the same date N years ago (or the last working day before it) to the latest NAV.</li>
-            <li><b>Since launch</b> is CAGR from the first NAV. It's left blank for funds launched before April 2006, when AMFI's NAV history starts.</li>
-            <li><b>3Y rolling</b> is the median of every 3-year CAGR ending on each day the fund has 3 years of history. It depends much less on today's date than a single 3-year return. <b>Worst 3Y</b> is the lowest of those.</li>
-            <li><b>Beat peers</b> is the share of weekly 3-year periods in which the fund's return beat the median fund in the same category and plan.</li>
-            <li><b>Max fall 5Y</b> is the biggest drop from a peak to a later low within the last 5 years. <b>Volatility 3Y</b> is the annualised standard deviation of daily returns. <b>Sharpe 3Y</b> is the 3-year return minus a 6.5% risk-free rate, divided by volatility.</li>
-            <li>If a NAV needed for a figure is missing (a hole of more than 10 days in the data), the figure is left blank rather than guessed.</li>
-            <li>Rankings list only the Growth option. IDCW returns leave out the payouts, so they aren't comparable.</li>
-          </ul>
-          <p>A ranking sorts past results. It doesn't predict which fund will do best next, and it doesn't include expense ratios, fund size, portfolio overlap or who manages the fund, all of which matter when choosing.</p>
-        </details>
       </div>
     </div>
   </section>
 
-  <section class="view" id="view-portfolio" data-view="portfolio" hidden>
-    <div class="layout">
-      <aside class="rail" id="pfRail" aria-label="Add investments">
-        <div class="drawer-head"><div class="dh-text"><b>Add, import and sync</b><span class="dh-sum" id="pfSum" aria-live="polite"></span></div><button type="button" class="btn-main" data-drawer-close>Done</button></div>
-        <section>
-          <h2>Add an investment</h2>
-          <div class="field">
-            <label class="lbl" for="pfFund">Fund</label>
-            <div class="combo">
-              <span class="box"><input id="pfFund" type="search" autocomplete="off" placeholder="Name, fund house or scheme code" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pfFundList"></span>
-              <ul id="pfFundList" class="combo-list" role="listbox" hidden></ul>
-            </div>
-            <span class="hint" id="pfFundHint"></span>
-          </div>
-          <div class="field">
-            <div class="seg block" role="radiogroup" aria-label="Kind of investment">
-              <label><input type="radio" name="pf-kind" value="sip" checked><span>Monthly SIP</span></label>
-              <label><input type="radio" name="pf-kind" value="lump"><span>One-time</span></label>
-            </div>
-          </div>
-          <div id="pfSipFields">
-            <label class="field"><span class="lbl">SIP amount</span><span class="box"><span class="pre">₹</span><input id="pfAmt" type="number" min="100" step="500" inputmode="decimal" value="5000"></span></label>
-            <div class="row2">
-              <label class="field"><span class="lbl">Debit day</span><span class="box"><input id="pfDay" type="number" min="1" max="28" step="1" value="5" inputmode="numeric"></span></label>
-              <label class="field"><span class="lbl">First SIP</span><span class="box"><input id="pfStart" type="month"></span></label>
-            </div>
-            <label class="field"><span class="lbl">Stopped in <small>leave empty if still running</small></span><span class="box"><input id="pfEnd" type="month"></span></label>
-            <label class="field"><span class="lbl">Raised every year by <small>optional</small></span><span class="box"><input id="pfStep" type="number" min="0" step="1" value="0" inputmode="decimal"><span class="post">%</span></span></label>
-          </div>
-          <div id="pfLumpFields" hidden>
-            <label class="field"><span class="lbl">Amount</span><span class="box"><span class="pre">₹</span><input id="pfLumpAmt" type="number" min="100" step="1000" inputmode="decimal"></span></label>
-            <label class="field"><span class="lbl">Date invested</span><span class="box"><input id="pfLumpDate" type="date"></span></label>
-          </div>
-          <button type="button" class="btn-main wide" id="pfAdd">Add to portfolio</button>
-          <p class="hint" id="pfAddMsg" role="status"></p>
-        </section>
-        <section>
-          <h2>Import your statement</h2>
-          <p class="note">Your Consolidated Account Statement (CAS) from CAMS and KFintech lists every purchase you've made, with the exact units and NAV, across all fund houses.</p>
-          <ol class="steps-mini">
-            <li>Request a <b>Detailed</b> CAS from camsonline.com (or MF Central), from before your first investment to today, with a password you choose.</li>
-            <li>On your computer, run <code>python tools/cas_to_json.py cas.pdf</code>. It drops your name, PAN and contact details.</li>
-            <li>Choose the file it makes.</li>
-          </ol>
-          <div class="btn-row"><label class="btn-quiet">Choose portfolio file<input id="pfImport" type="file" accept=".json,application/json" hidden></label></div>
-          <p class="hint" id="pfImportMsg" role="status"></p>
-        </section>
-        <section id="syncBox">
-          <h2>Google Sheet</h2>
-          <p class="note">Keep your plan and portfolio in a Google Sheet you own, and the same on every device you connect. The Sheet shows your investments, every statement transaction and today's values.</p>
-          <div id="syncSetup">
-            <details class="how">
-              <summary>How to set up the Sheet</summary>
-              <ol class="steps-mini">
-                <li>Make a new Google Sheet. Open <b>Extensions</b>, then <b>Apps Script</b>, and paste in <code>sheets/Code.gs</code> from this site's GitHub repository.</li>
-                <li>Press <b>Make a new secret</b> below. In Apps Script, open <b>Project Settings</b>, then <b>Script properties</b>, and add the property <code>SECRET</code> with that value.</li>
-                <li>Choose <b>Deploy</b>, then <b>New deployment</b>, type <b>Web app</b>. Run it as <b>Me</b>, with access for <b>Anyone</b>, and allow the permissions it asks for.</li>
-                <li>Paste the web app URL (it ends in <code>/exec</code>) and the secret here, and connect. Do the same on your other devices.</li>
-              </ol>
-            </details>
-            <label class="field"><span class="lbl">Web app URL</span><span class="box"><input id="syncUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></span></label>
-            <label class="field"><span class="lbl">Secret <small>the SECRET script property</small></span><span class="box"><input id="syncSecret" type="password" autocomplete="off" spellcheck="false"></span></label>
-            <p class="hint sync-make"><button type="button" class="linkish" id="syncMake">Make a new secret</button></p>
-            <button type="button" class="btn-main wide" id="syncConnect">Connect</button>
-          </div>
-          <div id="syncOn" hidden>
-            <p class="hint" id="syncState" role="status"></p>
-            <div class="btn-row">
-              <button type="button" class="btn-quiet" id="syncNow">Sync now</button>
-              <a class="btn-quiet" id="syncOpen" target="_blank" rel="noopener" hidden>Open the Sheet</a>
-            </div>
-            <p><button type="button" class="linkish" id="syncOff">Disconnect this device</button></p>
-          </div>
-          <p class="hint" id="syncMsg" role="status"></p>
-        </section>
-        <section>
-          <h2>Backup</h2>
-          <p class="note" id="pfBackupNote">Your portfolio is saved only in this browser. Nothing is uploaded, and the site's public data never includes it.</p>
-          <div class="btn-row">
-            <button type="button" class="btn-quiet" id="pfExport">Download backup</button>
-            <label class="btn-quiet">Restore a backup<input id="pfRestore" type="file" accept=".json,application/json" hidden></label>
-          </div>
-          <p><button type="button" class="linkish danger" id="pfClear">Remove everything</button></p>
-        </section>
-      </aside>
-      <main class="sheet">
-        <div class="block">
-          <p class="statement" id="pfStatement" style="--sc:var(--ink)"></p>
-          <p class="statement2" id="pfStatement2"></p>
-          <div id="pfChartWrap" hidden>
-            <div class="chart-bar">
-              <div class="field pf-scope"><span class="lbl sr-only">Show on the chart</span><span class="box sel"><select id="pfScope"></select></span></div>
-              <div class="row wrap">
-                <div class="seg" role="radiogroup" aria-label="Chart view">
-                  <label><input type="radio" name="pf-mode" value="value" checked><span>Worth and money in</span></label>
-                  <label><input type="radio" name="pf-mode" value="gain"><span>Gain</span></label>
-                </div>
-                <div id="pfType"></div>
-              </div>
-            </div>
-            <div class="chart-box" id="pfChartBox"><canvas id="pfChart" role="img" aria-label="Portfolio value over time"></canvas></div>
-          </div>
-        </div>
-        <div class="block flush" id="pfFigures"></div>
-        <div class="block" id="pfMix" hidden>
-          <div class="mix-head">
-            <h3>What you hold</h3>
-            <div class="row wrap">
-              <div class="field mix-by"><span class="lbl sr-only">Group by</span><span class="box sel"><select id="pfMixBy">
-                <option value="fund" data-label="By investment">By investment</option>
-                <option value="asset" data-label="By asset class">By asset class</option>
-                <option value="cat" data-label="By category">By category</option>
-                <option value="amc" data-label="By fund house">By fund house</option>
-              </select></span></div>
-              <div id="pfMixType"></div>
-            </div>
-          </div>
-          <div class="mix-body">
-            <div class="chart-box mix-chart" id="pfMixBox"><canvas id="pfMixChart" role="img" aria-label="What you hold, by share of today's value"></canvas></div>
-            <ul class="mix-legend" id="pfMixLegend"></ul>
-          </div>
-        </div>
-        <div class="block" id="pfHoldings" hidden>
-          <h3>Investments</h3>
-          <div class="scroll"><table id="pfTable"></table></div>
-          <div id="pfNotes"></div>
-        </div>
-      </main>
-    </div>
-    <button type="button" class="fab" data-drawer-open="pfRail" aria-expanded="false" aria-controls="pfRail"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>Add or import</button>
-  </section>
+  </main>
 
+  <nav class="tabbar" aria-label="Pages">
+    <a href="#home" data-view="home" class="tb"><svg class="ic" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></a>
+    <a href="#portfolio" data-view="portfolio" class="tb"><svg class="ic" aria-hidden="true"><use href="#i-wallet"/></svg><span>Portfolio</span></a>
+    <a href="#explore" data-view="explore" class="tb"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg><span>Explore</span></a>
+    <a href="#plan" data-view="plan" class="tb"><svg class="ic" aria-hidden="true"><use href="#i-bars"/></svg><span>Plan</span></a>
+  </nav>
 </div>
+
+<!-- ============================== panels ============================== -->
+<div class="panel" id="panelImport" role="dialog" aria-modal="true" aria-labelledby="panelImportTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelImportTitle">Import your statement</b></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body">
+    <section id="pfCasBox">
+      <p class="note">Your Consolidated Account Statement (CAS) from CAMS and KFintech lists every purchase, with the exact units and NAV, across all fund houses. It's read here, in your browser. The PDF and its password never leave this device.</p>
+      <label class="drop" id="pfCasDrop"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><span><b>Choose your statement PDF</b><small id="pfCasName">With or without a password</small></span><input id="pfCasFile" type="file" accept="application/pdf,.pdf"></label>
+      <div id="pfCasStep" hidden>
+        <label class="field"><span class="lbl">PDF password <small>the one you set when you asked for it</small></span><span class="box"><input id="pfCasPw" type="password" autocomplete="off" spellcheck="false"></span></label>
+        <button type="button" class="btn wide" id="pfCasGo">Open and import</button>
+      </div>
+      <p class="hint" id="pfImportMsg" role="status" aria-live="polite"></p>
+      <details class="how">
+        <summary>How to get your statement</summary>
+        <ol class="steps-mini">
+          <li>Open the <a href="https://www.camsonline.com/Investors/Statements/Consolidated-Account-Statement" target="_blank" rel="noopener">CAMS statement page</a>. <a href="https://www.mfcentral.com/" target="_blank" rel="noopener">MF Central</a> and <a href="https://mfs.kfintech.com/" target="_blank" rel="noopener">KFintech</a> offer the same statement.</li>
+          <li>Choose <b>Detailed</b>, with transactions, for a period starting <b>before your first investment</b>. Set a password if you like.</li>
+          <li>It arrives by email as a PDF in a few minutes. Choose it above.</li>
+        </ol>
+      </details>
+    </section>
+  </div>
+</div>
+
+<div class="panel" id="panelAdd" role="dialog" aria-modal="true" aria-labelledby="panelAddTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelAddTitle">Add an investment</b><span class="ph-sum" id="pfSum" aria-live="polite"></span></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body">
+    <div class="field">
+      <label class="lbl" for="pfFund">Fund</label>
+      <div class="combo">
+        <span class="box"><input id="pfFund" type="search" autocomplete="off" placeholder="Name, fund house or scheme code" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pfFundList"></span>
+        <ul id="pfFundList" class="combo-list" role="listbox" hidden></ul>
+      </div>
+      <span class="hint" id="pfFundHint"></span>
+    </div>
+    <div class="field">
+      <div class="seg block" role="radiogroup" aria-label="Kind of investment">
+        <label><input type="radio" name="pf-kind" value="sip" checked><span>Monthly SIP</span></label>
+        <label><input type="radio" name="pf-kind" value="lump"><span>One-time</span></label>
+      </div>
+    </div>
+    <div id="pfSipFields">
+      <label class="field"><span class="lbl">SIP amount</span><span class="box"><span class="pre">₹</span><input id="pfAmt" type="number" min="100" step="500" inputmode="decimal" value="5000"></span></label>
+      <div class="row2">
+        <label class="field"><span class="lbl">Debit day</span><span class="box"><input id="pfDay" type="number" min="1" max="28" step="1" value="5" inputmode="numeric"></span></label>
+        <label class="field"><span class="lbl">First SIP</span><span class="box"><input id="pfStart" type="month"></span></label>
+      </div>
+      <label class="field"><span class="lbl">Stopped in <small>leave empty if still running</small></span><span class="box"><input id="pfEnd" type="month"></span></label>
+      <label class="field"><span class="lbl">Raised every year by <small>optional</small></span><span class="box"><input id="pfStep" type="number" min="0" step="1" value="0" inputmode="decimal"><span class="post">%</span></span></label>
+    </div>
+    <div id="pfLumpFields" hidden>
+      <label class="field"><span class="lbl">Amount</span><span class="box"><span class="pre">₹</span><input id="pfLumpAmt" type="number" min="100" step="1000" inputmode="decimal"></span></label>
+      <label class="field"><span class="lbl">Date invested</span><span class="box"><input id="pfLumpDate" type="date"></span></label>
+    </div>
+    <label class="field"><span class="lbl">Goal <small>optional, e.g. Retirement</small></span><span class="box"><input id="pfGoal" type="text" list="pfGoalList" maxlength="40" autocomplete="off"></span></label>
+    <datalist id="pfGoalList"></datalist>
+    <button type="button" class="btn wide" id="pfAdd">Add to portfolio</button>
+    <p class="hint" id="pfAddMsg" role="status"></p>
+  </div>
+</div>
+
+<div class="panel" id="panelSheet" role="dialog" aria-modal="true" aria-labelledby="panelSheetTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelSheetTitle">Google Sheet</b></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body">
+    <section id="syncBox">
+      <p class="note">Keep your plan, portfolio and benchmark choices in a Google Sheet you own, and the same on every device you connect. The Sheet shows your investments, every statement transaction and today's values.</p>
+      <div id="syncSetup">
+        <details class="how">
+          <summary>How to set up the Sheet</summary>
+          <ol class="steps-mini">
+            <li>Make a new Google Sheet. Open <b>Extensions</b>, then <b>Apps Script</b>, and paste in <code>sheets/Code.gs</code> from this site's GitHub repository.</li>
+            <li>Press <b>Make a new secret</b> below. In Apps Script, open <b>Project Settings</b>, then <b>Script properties</b>, and add the property <code>SECRET</code> with that value.</li>
+            <li>Choose <b>Deploy</b>, then <b>New deployment</b>, type <b>Web app</b>. Run it as <b>Me</b>, with access for <b>Anyone</b>, and allow the permissions it asks for.</li>
+            <li>Paste the web app URL (it ends in <code>/exec</code>) and the secret here, and connect. Do the same on your other devices.</li>
+          </ol>
+        </details>
+        <label class="field"><span class="lbl">Web app URL</span><span class="box"><input id="syncUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></span></label>
+        <label class="field"><span class="lbl">Secret <small>the SECRET script property</small></span><span class="box"><input id="syncSecret" type="password" autocomplete="off" spellcheck="false"></span></label>
+        <p class="hint sync-make"><button type="button" class="linkish" id="syncMake">Make a new secret</button></p>
+        <button type="button" class="btn wide" id="syncConnect">Connect</button>
+      </div>
+      <div id="syncOn" hidden>
+        <p class="hint" id="syncState" role="status"></p>
+        <div class="btn-row">
+          <button type="button" class="btn quiet sm" id="syncNow">Sync now</button>
+          <a class="btn quiet sm" id="syncOpen" target="_blank" rel="noopener" hidden>Open the Sheet<svg class="ic" aria-hidden="true"><use href="#i-out"/></svg></a>
+        </div>
+        <p><button type="button" class="linkish" id="syncOff">Disconnect this device</button></p>
+      </div>
+      <p class="hint" id="syncMsg" role="status"></p>
+    </section>
+  </div>
+</div>
+
+<div class="panel" id="panelBench" role="dialog" aria-modal="true" aria-labelledby="panelBenchTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelBenchTitle">Benchmark</b></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body">
+    <p class="note">Index values come from NSE, not AMFI, so an index fund's NAV stands in for the index. Pick one fund, or several: with several, their average is drawn.</p>
+    <div class="chips-in bench-chips" id="benchChips"></div>
+    <div class="combo" id="benchAddBox">
+      <label class="search boxed" for="benchAdd"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><input id="benchAdd" type="search" placeholder="Add a fund, e.g. Nifty 500 index" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="benchAddList"></label>
+      <ul id="benchAddList" class="combo-list" role="listbox" aria-label="Funds" hidden></ul>
+    </div>
+    <fieldset class="field bench-scope"><legend class="lbl">Use it for</legend>
+      <label class="radio-line"><input type="radio" name="bench-scope" value="cat" checked><span id="benchScopeCat">Every fund in this category</span></label>
+      <label class="radio-line"><input type="radio" name="bench-scope" value="fund"><span id="benchScopeFund">Only this fund</span></label>
+    </fieldset>
+    <button type="button" class="btn wide" id="benchSave">Save benchmark</button>
+    <p><button type="button" class="linkish" id="benchDefault">Go back to the default</button></p>
+    <p class="hint" id="benchMsg" role="status"></p>
+  </div>
+</div>
+
 <div class="scrim" aria-hidden="true"></div>
 <script src="js/common.js"></script>
 <script src="js/planner.js"></script>
 <script src="js/explore.js"></script>
+<script src="js/compare.js"></script>
+<script src="js/cas.js"></script>
 <script src="js/portfolio.js"></script>
 <script src="js/sync.js"></script>
 <script src="js/app.js"></script>

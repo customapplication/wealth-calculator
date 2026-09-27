@@ -55,6 +55,7 @@ window.Sync = (() => {
     if (what !== 'portfolio' && window.Planner && window.Planner.syncGet) {
       out['settings/plan'] = window.Planner.syncGet();
     }
+    if (window.Bench) out['settings/bench'] = window.Bench.syncGet();
     return out;
   }
 
@@ -142,6 +143,9 @@ window.Sync = (() => {
           S.docs[k] = { at: r.at, h: hashOf({ casWarnings: d.casWarnings || [], casPeriod: d.casPeriod || null }) };
         } else if (r.c === 'settings' && r.id === 'plan' && !r.del && window.Planner && window.Planner.syncSet) {
           plan = r.data; planAt = r.at;
+        } else if (r.c === 'settings' && r.id === 'bench' && !r.del && window.Bench) {
+          window.Bench.syncSet(r.data);
+          S.docs[k] = { at: r.at, h: hashOf(window.Bench.syncGet().data) };
         }
       }
       if (P) window.Portfolio.syncSet(P);
@@ -273,13 +277,19 @@ window.Sync = (() => {
 
   function render() {
     const on = connected();
+    const state = busy || (waiting() && !S.lastError) ? 'busy' : S.lastError ? 'warn' : 'ok';
     const chip = $('#syncChip');
     if (chip) {
       chip.hidden = !on;
-      const state = busy || (waiting() && !S.lastError) ? 'busy' : S.lastError ? 'warn' : 'ok';
-      chip.className = 'btn-quiet sync-chip ' + state;
-      $('#syncChipText').textContent = state === 'busy' ? 'Saving to Sheet…' : state === 'warn' ? 'Sheet not updated' : 'Saved to Sheet';
+      chip.className = 'sync-chip ' + state;
+      $('#syncChipText').textContent = state === 'busy' ? 'Saving to Sheet…' : state === 'warn' ? 'Sheet not updated' : 'Sheet synced';
       chip.title = S.lastError || (S.lastOk ? `Last synced ${ago(S.lastOk)}` : '');
+    }
+    const card = $('#syncCard');
+    if (card) {
+      card.className = 'sync-card' + (on ? ' ' + state : '');
+      $('#syncCardTitle').textContent = !on ? 'Google Sheet' : state === 'busy' ? 'Saving to your Sheet…' : state === 'warn' ? 'Sheet not updated' : 'Google Sheet synced';
+      $('#syncCardSub').textContent = !on ? 'Not connected. Keep your data on every device.' : S.lastError ? 'Your changes are kept here and go up at the next sync.' : S.lastOk ? `Last synced ${ago(S.lastOk)}` : 'Not synced yet';
     }
     if (!$('#syncBox')) return;
     $('#syncSetup').hidden = on;
@@ -326,8 +336,8 @@ window.Sync = (() => {
       if (!window.confirm('Stop syncing this device? Your plan and portfolio stay on this device and in your Sheet.')) return;
       disconnect(); msg('Disconnected. This device no longer syncs.');
     });
-    // the header chip opens the Google Sheet section (inside the slide-up panel on phones)
-    $('#syncChip').addEventListener('click', () => setTimeout(() => { if (window.Shell) window.Shell.openDrawer('pfRail', '#syncBox'); }, 50));
+    // the chip on Home opens the Google Sheet panel
+    $('#syncChip').addEventListener('click', e => { e.preventDefault(); if (window.Shell) window.Shell.openPanel('panelSheet'); });
   }
 
   /* ---------- wiring ---------- */
@@ -353,6 +363,7 @@ window.Sync = (() => {
     try {
       if (e.key === 'mf-portfolio:v1' && window.Portfolio) window.Portfolio.syncSet(store.json(e.key, { holdings: [] }));
       else if (e.key === 'corpus-planner:v1' && window.Planner && window.Planner.syncSet) window.Planner.syncSet(store.json(e.key, {}));
+      else if (e.key === 'mf-bench:v1' && window.Bench) window.Bench.syncSet(store.json(e.key, {}));
     } finally { applying = false; }
   });
   window.addEventListener('online', () => schedule(0));

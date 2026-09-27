@@ -1,10 +1,10 @@
 /**
- * Google Drive archive for Corpus planner, v1.
+ * Google Drive archive for SIPs, v1.
  *
  * Keeps a copy of AMFI's data in your own Google Drive. The nightly GitHub
  * job sends it here:
  *
- *   Corpus planner archive/
+ *   SIPs archive/
  *     NAVAll/2026/09/NAVAll-2026-09-26.txt.gz    each night's NAVAll.txt, exactly
  *                                                as AMFI served it, named by the
  *                                                day it was downloaded (IST)
@@ -23,7 +23,7 @@
  * its own older history copies.
  *
  * SETUP (README.md has the same steps in full):
- *   1. Go to script.google.com -> New project. Name it "Corpus planner archive".
+ *   1. Go to script.google.com -> New project. Name it "SIPs archive".
  *      Delete what's there, paste this file unchanged, and save.
  *   2. Project Settings (the gear) -> Script Properties -> Add script property.
  *      Property: SECRET. Value: a long random string, at least 16 characters,
@@ -42,7 +42,8 @@
 var APP = 'corpus-planner-archive';
 var VERSION = 1;
 var MIN_SECRET = 16;
-var ROOT_NAME = 'Corpus planner archive';
+var ROOT_NAME = 'SIPs archive';
+var OLD_ROOT_NAMES = ['Corpus planner archive'];   // the app's earlier name; that folder is kept and renamed
 var DAILY_DIR = 'NAVAll';
 var HISTORY_DIR = 'NAV history';
 var SNAP_PREFIX = 'NAV history ';
@@ -59,7 +60,7 @@ function secret_() {
 }
 
 function doGet() {
-  return out_({ ok: true, app: APP, version: VERSION, msg: 'Corpus planner archive is running. The nightly job talks to it with POST requests.' });
+  return out_({ ok: true, app: APP, version: VERSION, msg: 'SIPs archive is running. The nightly job talks to it with POST requests.' });
 }
 
 function doPost(e) {
@@ -102,11 +103,21 @@ function doPost(e) {
 function root_() {
   var p = props_(), id = p.getProperty('rootId');
   if (id) {
-    try { var f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; } catch (e) { /* gone: find or make it */ }
+    try { var f = DriveApp.getFolderById(id); if (!f.isTrashed()) return renamed_(f); } catch (e) { /* gone: find or make it */ }
   }
-  var it = DriveApp.getRootFolder().getFoldersByName(ROOT_NAME);
-  var folder = it.hasNext() ? it.next() : DriveApp.getRootFolder().createFolder(ROOT_NAME);
+  var names = [ROOT_NAME].concat(OLD_ROOT_NAMES), folder = null;
+  for (var i = 0; i < names.length && !folder; i++) {
+    var it = DriveApp.getRootFolder().getFoldersByName(names[i]);
+    while (it.hasNext()) { var x = it.next(); if (!x.isTrashed()) { folder = x; break; } }
+  }
+  folder = folder ? renamed_(folder) : DriveApp.getRootFolder().createFolder(ROOT_NAME);
   p.setProperty('rootId', folder.getId());
+  return folder;
+}
+
+/** A folder made under the app's earlier name takes the current one; any other name is the owner's choice. */
+function renamed_(folder) {
+  if (OLD_ROOT_NAMES.indexOf(folder.getName()) >= 0) folder.setName(ROOT_NAME);
   return folder;
 }
 

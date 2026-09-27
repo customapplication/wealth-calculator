@@ -4,11 +4,12 @@ Read this first in every session. It records what this project is, how it's buil
 
 ## What this is
 
-A personal Indian mutual fund app, self-hosted on GitHub Pages, with three pages:
+**SIPs** (called Corpus planner until Sep 2026; the repo keeps its name, wealth-calculator): a personal Indian mutual fund app for the owner and their family, self-hosted on GitHub Pages, with five pages (`site/js/app.js` switches them by URL hash):
 
-- **Plan** (`site/js/planner.js`): SIP, step-up SIP and SWP calculator with an editable calculation engine.
-- **Explore funds** (`site/js/explore.js`): rank each SEBI category's funds by a chosen measure, computed from AMFI NAVs.
-- **My portfolio** (`site/js/portfolio.js`): the owner's SIPs from inception, entered by hand or imported from a CAMS/KFintech CAS statement. Shows value, money in, gain and XIRR.
+- **Home** and **Portfolio** (`site/js/portfolio.js`): the owner's SIPs from inception, entered by hand or imported from a CAMS + KFintech CAS PDF (with or without a password), read in the browser by `site/js/cas.js`. Value, money in, gain and XIRR; SIPs due next; groups by category, fund house, plan or goal, with a **Log in at …** pill to each fund house's site.
+- **Explore funds** (`site/js/explore.js`): rank any mix of SEBI categories and picked funds by a chosen measure, computed from AMFI NAVs, with Direct/Regular/both, top N, years running and fund house filters. Tick up to 5 funds to compare.
+- **Compare** (`site/js/compare.js`, reached from Explore): growth of ₹10,000, the category's typical fund and a benchmark the owner can change.
+- **Plan** (`site/js/planner.js`): SIP, step-up SIP and SWP calculator, shown as an editable sentence, with an editable calculation engine.
 - **Google Sheet sync** (`site/js/sync.js` + `sheets/Code.gs`): optional. Keeps the plan and portfolio in a Sheet the owner owns, and in step across devices.
 - **Drive archive** (`pipeline/archive.py` + `sheets/Archive.gs`): optional. The nightly job keeps each day's NAVAll.txt and a monthly copy of the NAV history in the owner's Google Drive.
 
@@ -19,6 +20,15 @@ A personal Indian mutual fund app, self-hosted on GitHub Pages, with three pages
 - Accuracy over completeness: leave a figure blank rather than guess it.
 - Self-hosted: a public GitHub repo, a nightly GitHub Actions job, GitHub Pages. No server.
 - Portfolio data is private. It lives in the browser (localStorage) and, once the owner connects it, in their own Google Sheet through their own Apps Script. Never in the repo or the published site.
+- Decided 27 Sep 2026:
+  - For the owner and family only, not a public service.
+  - The Sheet's tabs stay readable, not encrypted.
+  - The planned login gets recovery by security questions plus a one-time recovery code.
+  - Benchmarks are configurable: an index fund stands in by default, and the owner can pick one or more funds per fund or per category and save them.
+  - No Gmail CAS fetch.
+  - Nightly tests stay as they are.
+  - The name is "SIPs", with no repo rename.
+  - Fund house, MF Central, CAMS and KFintech links, plus in-app CAS import. No PAN-based fetch, since no legal free API exists.
 - Google Sheets goes through an Apps Script web app bound to the Sheet, the same pattern as the owner's other apps: no Google Cloud project, no OAuth client, nothing to renew. The owner chose this over Google Identity Services. Every request carries a secret, so it isn't an open URL.
 
 ## Layout
@@ -31,13 +41,16 @@ pipeline/            nightly data build (Python 3.12, requests + numpy)
   metrics.py         returns, rolling 3Y, drawdown, volatility, Sharpe, consistency vs category median
   build.py           orchestrator; run(cfg, cache_dir, out_dir, net, today, archive) takes an injectable `net` and `archive` for tests
   archive.py         Drive archive client: daily NAVAll.txt.gz, monthly history as ~5 MB .tar.gz parts; never fails the build
-  config.json        sections/plans/options filters, extra_schemes, risk-free rate, limits
-  tests/             pytest, 41 tests, fixtures in AMFI's real old (6-col) and new (8-col) formats
-tools/cas_to_json.py CAS PDF -> portfolio JSON via casparser 1.4; strips name/PAN/email/phone/address
+  schemedata.py      AMFI scheme master CSV -> launch date per code (+ the scheme's first launch); last good copy in .cache
+  links.py           checks pipeline/links.json (MF Central, CAMS, KFintech, ~43 fund houses) nightly -> site/data/links.json
+  config.json        sections/plans/options filters, extra_schemes, risk-free rate, limits (benchmarks default in build.py)
+  tests/             pytest, 57 tests, fixtures in AMFI's real old (6-col) and new (8-col) formats
+tests/cas.test.js    node:test for site/js/cas.js against a made-up statement laid out like pdf.js reads a real one
 sheets/Code.gs       Apps Script sync backend, pasted into the owner's Sheet unchanged (@OnlyCurrentDoc)
 sheets/Archive.gs    Apps Script Drive archive, a separate standalone project (needs Drive scope, so kept apart)
 sheets/tests/        node:test against fake-google.js, an in-memory SpreadsheetApp/DriveApp/Properties/Lock/Content
-site/                static site: index.html, manifest.webmanifest, icons/, css/app.css, js/{common,planner,explore,portfolio,sync,app}.js
+site/                static site: index.html, manifest.webmanifest, icons/, css/app.css, js/{common,planner,explore,compare,cas,portfolio,sync,app}.js
+site/vendor/         Chart.js 4.4.1 and PDF.js 5.4.624 (legacy build, .mjs renamed .js), served by the site itself; see its README
 .github/workflows/nightly.yml  02:00 IST: tests -> build (+ Drive archive) -> Pages deploy; .cache kept via actions/cache; keepalive job
 .github/workflows/tests.yml    pytest + node tests on pull requests
                                Both use Node 24 action majors (checkout/setup-python/setup-node v7, cache v6, configure-pages v6,
@@ -55,45 +68,64 @@ site/                static site: index.html, manifest.webmanifest, icons/, css/
 4c. Pages source must be **GitHub Actions**, not "Deploy from a branch": site/data isn't in the repo. The `keepalive` job re-enables `nightly.yml` via `gh api PUT .../enable` on scheduled runs, so GitHub's 60-day inactivity pause doesn't lapse the schedule.
 5. Metrics are left blank when the needed NAV is more than 10 days from its target date. Since-launch CAGR is blank for funds whose data starts around Apr 2006 (the start of AMFI's history), and for schemes without a full MFapi backfill.
 6. History file format (the cache in `.cache/nav/` and the site in `site/data/nav/`): `{"c": code, "s": "YYYY-MM-DD", "t": [0, gap, gap...], "v": [nav...]}`. `t` is day gaps from the previous NAV.
-7. `site/data/funds.json` holds one row per active open-ended scheme, keyed `c n a g k p pl o i i2 v d h m`. `m` is the metrics object (`r1 r3 r5 r10 si rr3med rr3min rr3n cons mdd5 vol3 sh3 age inc`) or null.
+7. `site/data/funds.json` holds one row per active open-ended scheme, keyed `c n a g k p pl o i i2 v d h m l L`. `m` is the metrics object (`r1 r3 r5 r10 si rr3med rr3min rr3n cons mdd5 vol3 sh3 age inc`) or null. `l` is the plan's launch date and `L` the scheme's first launch when earlier, both from AMFI's scheme data (`DownloadSchemeData_Po.aspx?mf=0`, columns by header name). Blank when AMFI gives none. Top level: `cats` {"<category>|<plan>": {f, n, s}} and `bench` {category: {i: index, c: code, n: name}}.
+8. The typical fund (`site/data/cat/<f>.json`, the same compact format with `c` = "category|plan") is the median of the tracked funds' Friday-to-Friday returns, chained from 100. It starts on the first week with `category_min_funds` (3) funds.
+9. The default benchmark per equity category is an index fund standing in for the index, because NSE, not AMFI, publishes index values. `benchmarks` in DEFAULT_CONFIG gives name regexes; the Direct Growth plan with the longest history wins. A category with no match gets none.
+10. Links: `pipeline/links.json` is hand-kept. The nightly check marks a site `ok: false` only for 404/410, DNS failure or connection refused, which the app hides. 403, 429, 5xx and timeouts count as `ok: null` and stay shown. `meta.json` `links` lists broken sites and fund houses with no entry (`no_link`).
+11. Scheme data, category medians, benchmarks and links never stop the build; each reports in `meta.json` (`scheme_data`, `categories`, `benchmarks`, `links`).
 
 ## Front-end conventions
 
-- Plain classic scripts, no build step, no framework. Chart.js 4.4.1 from jsdelivr.
+- Plain classic scripts, no build step, no framework. Chart.js 4.4.1 and PDF.js are served from `site/vendor/`, not a CDN: no third-party script runs on the page that holds the portfolio or reads the statement.
 - `planner.js` came from a self-contained calculator. All its selectors are scoped to `#view-plan`. Don't reuse its IDs, or `data-key` / `data-focus` attributes, on other pages.
-- Cross-page events on `document`: `mf:view` {view}, `mf:theme`, `mf:add-sip` {code}. `window.Planner.addRate(pct)` adds a return rate to the planner.
-- localStorage keys: `corpus-planner:v1`, `corpus-planner:engine`, `corpus-planner:theme`, `corpus-planner:view`, `mf-explore:v1`, `mf-portfolio:v1`, `mf-portfolio:v1:view`, `mf-sync:v1` (the Sheet URL, secret, cursor and per-record sync state), `mf-charts:v1` (chosen chart types: plan, pfTime, pfMix, pfMixBy, exFund, exList).
+- Script order: common, planner, explore, compare, cas, portfolio, sync, app.
+- Shell (`app.js`): views `home portfolio explore compare plan` (Compare highlights Explore in the nav). Forms live in panels (`.panel`, `role=dialog`): `panelImport`, `panelAdd`, `panelSheet`, `panelBench`, and the plan's `planRail`. `[data-open-panel="<id>"]` (optional `data-focus-sel`) opens one, `[data-panel-close]`, the scrim and Esc close it; focus is trapped, then returns to the opener (or, if it was redrawn, to the element with its id or `data-focus`). `window.Shell.openPanel(id, focusSel)`, `closePanel()`, `isOpen(id)`; the old `openDrawer`/`closeDrawer` still work.
+- Cross-page events on `document`: `mf:view` {view}, `mf:theme`, `mf:add-sip` {code}, `mf:picks` {list} (funds ticked to compare, `window.Picks`), `mf:panel` {id, open}. `window.Planner.addRate(pct)` adds a return rate to the planner.
+- localStorage keys: `corpus-planner:v1`, `corpus-planner:engine`, `corpus-planner:theme`, `corpus-planner:view`, `mf-explore:v1` (cats, funds, plan, metric, top, age, amc, sel, range, cmp), `mf-compare:v1` (range, anchor), `mf-bench:v1` ({cat: {category: [codes]}, fund: {code: [codes]}}), `mf-portfolio:v1`, `mf-portfolio:v1:view` (scope, mode, group, range), `mf-sync:v1` (the Sheet URL, secret, cursor and per-record sync state), `mf-charts:v1` (chosen chart types: plan, planMix, pfTime, pfMix, pfMixBy, exFund, exList). The `corpus-planner:*` and `mf-*` names stay, so nothing already saved is lost.
 - Shared components in `common.js`:
   - `MF.picker(select, {search, minWidth, title})` puts a button and panel in front of a native `<select>`, which stays as the value holder: code keeps reading `.value` and `change`. Options can carry `data-desc`, `data-sub` and `data-label`. After setting `.value` in code, call `MF.refreshPickers()`. On phones the panel is a bottom sheet.
   - `MF.typeSwitch(el, {label, types, value, onChange})` renders native radios with icons, so arrow keys work.
   - `MF.pref`/`MF.setPref` store chart choices.
   - Chart.js plugins: `barValues` for value labels at bar ends, and `donutCenter`.
   - The icon sprite is in index.html (`#i-*`); use `MF.icon(name)`.
+  - `MF.combo(input, list, {find, html, pick})`: a searchable listbox (keyboard and mouse); items with `head` are group headings. `MF.searchFunds(D, q, {limit, filter})` ranks funds by name words.
+  - `MF.loadFunds()` (funds, `cats`, `bench`), `loadHistory(code)`, `loadCat(D, key)`, `loadLinks()` then `amcSite(name)` → {name, url} (https only, not `ok: false`), `shortAmc`, `launchYear(f)`.
 - Layout breakpoints:
-  - ≤1000px: each `.rail` (inputs) becomes a slide-up sheet opened by a `.fab`. `window.Shell.openDrawer(id, focusSel)` opens one, and a page switch closes only other pages' panels.
-  - ≤760px: bottom tab bar, the Explore table becomes `#exCards`, Explore's extra filters fold behind `#exToggle`, and the portfolio table becomes cards.
-  - `.seg.block` must keep `padding:2px`, because `.block` is also the sheet-section class.
+  - ≥1024px: left side nav with the Google Sheet card and theme switch; the Explore table.
+  - <1024px: bottom tab bar; Explore shows `#exCards`.
+  - ≥760px panels are drawers on the right; <760px they're bottom sheets, and Explore's extra filters fold behind `#exToggle`.
+  - `.seg.block` must keep `padding:2px`.
 - Chart forms (from the dataviz method):
   - line/area/bars for anything over time; donut/pie/bars only for "What you hold", which has at most 5 named slices plus a gray "Other" (`--c-other`).
   - The ranking uses horizontal bars in one hue; yearly returns use blue for gains and crimson for losses.
   - No 2-slice pies and no dual axes.
   - Palette validated with the dataviz validator (adjacent pairs) in both themes: light c5/c6 were made more saturated, and dark c1–c6 were redrawn inside the dark lightness band. `--stamp` stays the UI accent.
-- Sync hooks: `planner.js` and `portfolio.js` fire `mf:changed` {what: 'plan' | 'portfolio'} after every save, and `portfolio.js` fires `mf:valued` with the figures it just showed. `sync.js` reads and applies data through `window.Planner.syncGet/syncSet` and `window.Portfolio.syncGet/syncSet/snapshot`, and fires `mf:synced` after applying another device's changes. `sync.js` loads after `portfolio.js` and before `app.js`.
-- Portfolio pricing for manual entries: first NAV on or after the debit date, with 0.005% stamp duty from 1 Jul 2020. CAS imports use the statement's own units, and the page checks computed units against the CAS closing units.
+- Sync hooks: `planner.js`, `portfolio.js` and `compare.js` fire `mf:changed` {what: 'plan' | 'portfolio' | 'bench'} after every save, and `portfolio.js` fires `mf:valued` with the figures it just showed. `sync.js` reads and applies data through `window.Planner.syncGet/syncSet`, `window.Portfolio.syncGet/syncSet/snapshot` and `window.Bench.syncGet/syncSet`, and fires `mf:synced` after applying another device's changes.
+- Portfolio groups (`groups(by)`): category, fund house (`f.a`, or the statement's `amc`), plan, goal (`h.goal`, set on the card) and asset class (the mix chart). A fund that couldn't be valued stays in its fund house or goal group; otherwise it goes to "Couldn't be valued". The login pill comes from `amcSite()`; with no match there's no pill. MF Central, CAMS and KFintech are in `#pfPortals`.
+- Portfolio pricing for manual entries: first NAV on or after the debit date, with 0.005% stamp duty from 1 Jul 2020. CAS imports use the statement's own units. The page checks opening units plus computed units against the CAS closing units.
+- CAS import (`cas.js`, `window.CasReader`):
+  - `read(ArrayBuffer, password, progress)` loads `vendor/pdfjs/pdf.min.js` with a dynamic `import()`. `parse(pages)` is pure: pdf.js text items become rows (±2.5 pt, touching pieces joined without a space), then a state machine.
+  - The state machine reads: AMC line, `Folio No`, the scheme heading (can wrap, ISIN drawn in pieces, `Registrar :` / `KFINTECH` on its own row), `Opening Unit Balance`, dated transaction rows (numbers placed in Amount/Units/Price/Balance by the table header's column centres), then `Closing Unit Balance` / `NAV on` / `Total Cost Value` / `Market Value on`.
+  - Transaction types use casparser's names (PURCHASE, PURCHASE_SIP, REDEMPTION, SWITCH_IN/OUT(_MERGER), DIVIDEND_PAYOUT/REINVEST, STAMP_DUTY_TAX, STT_TAX, TDS_TAX, REVERSAL, SEGREGATION), plus BONUS, TRANSFER_IN/OUT and MISC. A wordless charge row counts as stamp duty only when it's 0.005% of a same-day purchase.
+  - Every scheme is checked (opening + units = closing, and each printed running balance), as is the total value against the page-1 summary. Folios keep only their last 4 characters; name, PAN, email, phone and address are never read into the result, and the password is never stored.
+  - `importCas` merges by ISIN + folio. The new statement replaces its own period's transactions, and older ones stay. Holdings carry `from`, `asOf` and `openUnits`, and ids are kept so sync updates rather than replaces.
+  - Checked against a real CAMS + KFintech statement: every scheme's units add up, and the value matches the summary. No statement, or anything from one, goes in the repo (`*.pdf` is gitignored); fixtures are made up.
 - Google Sheet sync rules (`sync.js`, `Code.gs`):
-  - Records are `holdings/<id>`, `settings/plan`, `settings/portfolio` (CAS warnings and period), plus `snapshot/latest` (the valuation, written by devices, never pulled). The newest `at` (ms, corrected by the server's clock) wins. A tie keeps the stored copy, and a losing change gets the stored copy back in `rejected`. Deletions are tombstones and are never purged.
+  - Records are `holdings/<id>`, `settings/plan`, `settings/portfolio` (CAS warnings and period), `settings/bench` (benchmark choices; any `settings/<id>` is accepted, so v1 of `Code.gs` syncs it too), plus `snapshot/latest` (the valuation, written by devices, never pulled). The newest `at` (ms, corrected by the server's clock) wins. A tie keeps the stored copy, and a losing change gets the stored copy back in `rejected`. Deletions are tombstones and are never purged.
   - Server: one row per record in the hidden `_data` tab, JSON split over 8 cells of 45,000 characters, each piece marked `~` and written as plain text. `rev` in Script Properties is a cursor for incremental pulls. `epoch` changes on erase, which makes devices resync and push what they hold.
   - The plan's `tab`, `chartMode` and `valueMode` stay per device. The edited engine source isn't synced; it's code, and it stays on the device that wrote it.
   - On connect, what the device already holds is stamped `at = 1`, so data already in the Sheet wins. An untouched (default) plan is never sent.
   - The `SECRET` lives in Script properties, never in `Code.gs`. The URL and secret live only in `mf-sync:v1`. Readable tabs (Portfolio, Investments, Transactions, Plan) are rebuilt after every write; strings pass through `text_()` against formula injection.
-- Design: a "passbook" look using IBM Plex Sans, Plex Sans Condensed for figures, and Plex Mono only for code. Ink #16233F, stamp indigo #2F4BA0, crimson #B7324A for withdrawals, scenario colours from rupee notes. Sentence case everywhere, no all-caps labels, plain active-voice copy. Keep light/dark tokens in sync; both themes exist.
+  - `Code.gs` VERSION 2 (Sep 2026) adds Fund house and Goal to the Investments tab and names the menu SIPs. `Archive.gs` renames a *Corpus planner archive* folder to *SIPs archive* rather than starting a new one.
+- Design (from the owner-approved mockups): Anek Latin for figures and headings, IBM Plex Sans for text, Plex Mono only for code (Google Fonts, with fallbacks). Indigo `--accent` #2E44B2 on a #F2F3F7 background with white cards, the validated c1–c6 series colours, crimson for losses and withdrawals. The chart code still reads the older names (`--muted`, `--rule`, `--stamp`, `--wd`, `--cond`…), which are aliases of the new tokens. Sentence case everywhere, no all-caps labels, plain active-voice copy. Keep light/dark tokens in sync; both themes exist.
 
 ## How to test
 
 ```bash
 pip install -r pipeline/requirements-dev.txt
 python -m pytest -q pipeline/tests
-node --test sheets/tests/*.test.js       # Code.gs against simulated Google services
+node --test sheets/tests/*.test.js       # Code.gs and Archive.gs against simulated Google services
+node --test tests/*.test.js              # the CAS reader
 python pipeline/build.py                 # needs network: www/portal.amfiindia.com, api.mfapi.in
 python -m http.server -d site 8000
 ```
@@ -101,6 +133,15 @@ python -m http.server -d site 8000
 The site was also smoke-tested in jsdom against pipeline-built synthetic data: rankings, fund chart, planner hand-off, manual SIP, CAS import with a units check, and failure states. XIRR was verified: a SIP in a fund growing exactly 12% a year gives 12.00%. Those harness scripts aren't in the repo.
 
 Google Sheet sync was tested end to end in Chromium (Playwright). Two browser profiles acted as two devices, with the Apps Script URL routed to the real `Code.gs` running on `fake-google.js`. The test covered connect, both directions, removal, offline then back, conflicting edits, two tabs, CAS import to the Transactions tab, a wrong secret, another app's URL, and a phone-width dark layout. That script isn't in the repo either.
+
+The rebuilt UI (27 Sep 2026) was tested the same way, on synthetic data, at 1440px light and 390px dark:
+- Statement PDFs: one without a password imports at once; a locked one asks, explains a wrong password, then merges (the same statement twice adds nothing).
+- Every fund-house group and fund card has its login pill, and it opens the site in a new tab.
+- Goals (Enter keeps, Esc cancels), remove, and chart types that stay chosen.
+- Explore: chips, Direct/Regular/both with the commission gap, top N, years running, fund house, reset, and the compare tray.
+- Compare: 3 funds plus the typical fund and the benchmark; the benchmark saved per category, then per fund, then back to the default.
+- The plan sentence opens its panel on the right input, and focus comes back.
+- Theme switch, no sideways scroll on any page, bottom sheets on a phone.
 
 ## Status
 
@@ -111,12 +152,28 @@ Google Sheet sync was tested end to end in Chromium (Playwright). Two browser pr
   - **Third, 26 Sep 19:03 UTC** (run 36264684959, the first with the archive code and secrets). It built and deployed. The archive failed: Google answered with a web page instead of JSON, most likely a sign-in page (access not Anyone), the /dev or editor URL, or a deployment made before the code was saved. `archive.web_page()` now names the cause in the log. This run was 00:33 IST on 27 Sep, so the 27 Sep liquid-fund NAVs counted as today, and nav_date was 27 Sep (rule 4a).
 - Pages is on GitHub Actions and deploying (runs 3 and 4). Still open: the owner fixes the archive's Apps Script deployment; check the next run's `Archive:` log lines. Read run logs through the GitHub tools: the Claude Code on the web environment blocks amfiindia.com and api.mfapi.in, so `build.py` can't run there. Once the Drive archive is on, real NAVAll files are in the owner's Drive; they're the source for replacing the fixtures' illustrative rows.
 
+- **Redesign mockups** (27 Sep 2026): https://claude.ai/artifact/V1dMckEyKxQeQP58yYNZ3R (private; a Design canvas). The owner approved them, and the UI was rebuilt to match, except the PIN lock screen, which comes with the security work. It has Home, Portfolio (grouped by category), Explore (multi-select categories and funds, Direct and Regular, top N, running for), Compare (growth of ₹10,000, the category median dashed, the benchmark dotted, a benchmark editor), Plan (a sentence to edit, and "what your corpus is made of"), a PIN lock screen, and Home and Explore on desktop with a left nav.
+  - Proposed look: Anek Latin for figures and headings, IBM Plex Sans for text, indigo #2E44B2, the existing validated c1–c6 series colours, cards on #F2F3F7, and a dark variant (the `dark` tweak).
+
 ## Proposed next steps (confirm with the owner)
 
-1. **Live-data shakedown: done** (see Status). Left: swap the fixtures' illustrative rows for real ones from the Drive archive.
-2. **Google Sheets sync: done** for the plan and the portfolio, through Apps Script (see above). Still open, if the owner wants it:
-   - Rankings: have the nightly job post the `funds.json` summary to the same script, with the URL and secret in GitHub Actions secrets.
-   - Full NAV history doesn't fit: about 6,000 schemes × thousands of days exceeds Sheets' 10-million-cell limit. It stays in JSON.
-3. Expense ratio (TER) and AUM from AMFI's separate disclosures, shown on Explore funds.
-4. CAS import directly in the browser (pdf.js), so no local Python step is needed.
-5. Later: shares.
+The owner's 9-point request of 27 Sep 2026, in this order (each its own change):
+
+1. **Done:**
+   - Name "SIPs".
+   - In-browser CAS import, with `tools/` removed.
+   - Nightly launch dates, category medians, benchmarks and link checks.
+   - Mockups published (see Status).
+   - The UI rebuilt to the mockups: Home, grouped Portfolio with login pills and goals, Explore filters, Compare with the editable benchmark, and the Plan sentence and corpus donut.
+2. **Next, security:**
+   - Username and password with PBKDF2, giving two keys: one proves the owner to Apps Script (only its hash is kept in Script properties), the other is an AES-GCM key.
+   - Local data encrypted.
+   - A PIN per device (5 tries), plus WebAuthn where the browser supports it.
+   - Auto-lock, and signing out other devices.
+   - Reset with 3 security questions plus a one-time recovery code, rate-limited by the script, and a menu reset for the Sheet's owner. Sheet tabs stay readable.
+   - This needs another `Code.gs` change: a new version for the owner to paste and deploy.
+3. **Still open, not scheduled:**
+   - Swap the fixtures' illustrative rows for real ones from the Drive archive.
+   - Rankings summary to the Sheet.
+   - TER and AUM from AMFI.
+   - Shares, later.
