@@ -114,27 +114,102 @@
     return { t, v };
   }
 
+  const ISO = /^\d{4}-\d{2}-\d{2}/;
+  const byDate = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  const BUY_TYPES = new Set(['PURCHASE', 'PURCHASE_SIP', 'SWITCH_IN', 'SWITCH_IN_MERGER', 'DIVIDEND_REINVEST']);
+
+  /**
+   * A statement fund's SIP instalments, oldest first: [{ date, net, stamp,
+   * gross, units, nav }]. gross is what left the bank: the purchase plus its
+   * share of that day's stamp duty (shared by amount when a day has several
+   * purchases).
+   */
+  function sipInstalments(h) {
+    const all = Array.isArray(h && h.txns) ? h.txns.filter(x => x && ISO.test(x.date)) : [];
+    const stamp = new Map(), bought = new Map();
+    for (const x of all) {
+      if (x.type === 'STAMP_DUTY_TAX') stamp.set(x.date, (stamp.get(x.date) || 0) + Math.abs(x.amount || 0));
+      else if (BUY_TYPES.has(x.type)) bought.set(x.date, (bought.get(x.date) || 0) + Math.abs(x.amount || 0));
+    }
+    return all.filter(x => x.type === 'PURCHASE_SIP').sort(byDate).map(x => {
+      const net = Math.abs(x.amount || 0), day = bought.get(x.date) || 0;
+      const st = day > 0 ? (stamp.get(x.date) || 0) * net / day : 0;
+      return { date: x.date.slice(0, 10), net, stamp: st, gross: net + st, units: Math.abs(x.units || 0), nav: x.nav == null ? null : +x.nav };
+    });
+  }
+
+  /**
+   * Changes in a SIP's amount, read from its instalments (oldest first). A
+   * new amount counts once it holds for two instalments, or when it's the
+   * latest; a single odd instalment between two runs isn't a change. With
+   * several SIPs in one fund (two or more instalments in most months) the
+   * amounts can't be told apart, so nothing is read.
+   * Returns { changes: [{ date, from, to, up, pct }], ups, several, yearly,
+   * pct (the same % each time, when yearly), amt (the same ₹ each time, when yearly) }.
+   */
+  function sipSteps(inst) {
+    const out = { changes: [], ups: [], several: false, yearly: false, pct: null, amt: null };
+    const months = new Map();
+    inst.forEach(x => months.set(x.date.slice(0, 7), (months.get(x.date.slice(0, 7)) || 0) + 1));
+    const multi = [...months.values()].filter(n => n > 1).length;
+    out.several = months.size >= 3 && multi * 2 >= months.size;
+    if (out.several || inst.length < 2) return out;
+    const same = (a, b) => Math.abs(a - b) <= Math.max(1, 0.002 * Math.max(a, b));
+    let runs = [];
+    for (const x of inst) {
+      const a = Math.round(x.gross), r = runs[runs.length - 1];
+      if (r && same(r.amount, a)) { r.n++; r.last = x.date; } else runs.push({ amount: a, n: 1, first: x.date, last: x.date });
+    }
+    runs = runs.filter((r, i) => !(r.n === 1 && i > 0 && i < runs.length - 1));
+    const merged = [];
+    for (const r of runs) {
+      const p = merged[merged.length - 1];
+      if (p && same(p.amount, r.amount)) { p.n += r.n; p.last = r.last; } else merged.push(Object.assign({}, r));
+    }
+    for (let i = 1; i < merged.length; i++) {
+      const a = merged[i - 1].amount, b = merged[i].amount;
+      out.changes.push({ date: merged[i].first, from: a, to: b, up: b > a, pct: Math.round((b / a - 1) * 1000) / 10 });
+    }
+    out.ups = out.changes.filter(c => c.up);
+    const u = out.ups;
+    if (u.length >= 2 && u.every((c, i) => i === 0 || Math.abs(monthNo(c.date.slice(0, 7)) - monthNo(u[i - 1].date.slice(0, 7)) - 12) <= 1)) {
+      out.yearly = true;
+      const pcts = u.map(c => (c.to / c.from - 1) * 100).sort((a, b) => a - b), mid = pcts[Math.floor(pcts.length / 2)];
+      const adds = u.map(c => c.to - c.from);
+      if (adds.every(d => Math.abs(d - adds[0]) <= 1)) out.amt = Math.round(adds[0]);
+      else if (pcts.every(p => Math.abs(p - mid) <= 1)) out.pct = Math.round(mid * 10) / 10;
+    }
+    return out;
+  }
+
   /**
    * The SIP a statement shows for a fund, from its SIP purchases: the amount
-   * (the last instalment plus its stamp duty), the usual debit day, the first
-   * month seen, and whether it was still running when the statement ends
+   * (the last instalment plus its stamp duty, or the last month's together
+   * with several SIPs), the usual debit day, the first and last instalments,
+   * any step-ups, and whether it was still running when the statement ends
    * (an instalment in its last 40 days). null if the statement has no SIP.
+   * startKnown is false when the first instalment is at the very start of a
+   * statement that opens with units already held: it may have started earlier.
    */
   function inferSip(h) {
-    const all = Array.isArray(h && h.txns) ? h.txns : [];
-    const sips = all.filter(x => x && x.type === 'PURCHASE_SIP' && /^\d{4}-\d{2}-\d{2}/.test(x.date)).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-    if (!sips.length) return null;
-    const last = sips[sips.length - 1];
-    const stamp = all.filter(x => x.date === last.date && x.type === 'STAMP_DUTY_TAX').reduce((s, x) => s + Math.abs(x.amount || 0), 0);
+    const inst = sipInstalments(h);
+    if (!inst.length) return null;
+    const last = inst[inst.length - 1];
     const days = new Map();
-    sips.slice(-6).forEach(x => { const d = +x.date.slice(8, 10); days.set(d, (days.get(d) || 0) + 1); });
+    inst.slice(-6).forEach(x => { const d = +x.date.slice(8, 10); days.set(d, (days.get(d) || 0) + 1); });
     const day = [...days].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
-    const asOf = h.asOf && /^\d{4}-\d{2}-\d{2}/.test(h.asOf) ? h.asOf : last.date;
+    const asOf = h.asOf && ISO.test(h.asOf) ? h.asOf : last.date;
     const running = isoToMs(asOf) - isoToMs(last.date) <= 40 * DAY;
+    const steps = sipSteps(inst);
+    const amount = steps.several ? inst.filter(x => x.date.slice(0, 7) === last.date.slice(0, 7)).reduce((s, x) => s + x.gross, 0) : last.gross;
+    const early = +h.openUnits > 0.0005 && h.from && ISO.test(h.from) && isoToMs(inst[0].date) - isoToMs(h.from) <= 40 * DAY;
     return {
-      amount: Math.round(Math.abs(last.amount || 0) + stamp), day: Math.min(28, Math.max(1, day)),
-      start: sips[0].date.slice(0, 7), end: running ? null : last.date.slice(0, 7), step: 0,
-      running, last: last.date, asOf, count: sips.length, source: 'statement'
+      amount: Math.round(amount), day: Math.min(28, Math.max(1, day)),
+      start: inst[0].date.slice(0, 7), end: running ? null : last.date.slice(0, 7),
+      step: steps.pct || 0, stepAmt: steps.amt || 0,
+      stepMonth: steps.ups.length ? steps.ups[steps.ups.length - 1].date.slice(0, 7) : null,
+      steps, first: inst[0].date, startKnown: !early,
+      running, last: last.date, asOf, count: inst.length, source: 'statement'
     };
   }
 
@@ -163,7 +238,17 @@
     if (h.sip && h.sip.none) return null;
     if (h.sip && +h.sip.amount > 0) return own(h.sip, 'you');
     const g = inferSip(h);
-    return g && Object.assign(g, { running: g.running && !g.end });
+    if (!g) return null;
+    g.running = g.running && !g.end;
+    // A step-up seen every year goes on after the statement ends: add the ones due since.
+    if (g.running && g.stepMonth && (g.step > 0 || g.stepAmt > 0)) {
+      g.seen = g.amount;
+      for (let m = monthNo(g.last.slice(0, 7)) + 1; m <= now; m++) {
+        if ((m - monthNo(g.stepMonth)) % 12 === 0) g.amount = g.step > 0 ? g.amount * (1 + g.step / 100) : g.amount + g.stepAmt;
+      }
+      g.amount = Math.round(g.amount);
+    }
+    return g;
   }
 
   /**
@@ -171,7 +256,9 @@
    * as sipOf gives it. o: { years, rate (% a year), stepMode 'own' | 'all',
    * step (% a year, for 'all'), today (ms), invested (money in so far, net) }.
    * Month by month: each running SIP goes in at the start of the month (rising
-   * by its step-up in the month it started, each year), then everything grows
+   * by its step-up each year, in the month it started, or in the month a
+   * statement showed its last step-up; by a % or, as a statement can show, a
+   * fixed ₹ stepAmt), then everything grows
    * by the month's share of the yearly rate. Stopped SIPs add nothing, and a
    * SIP with a stop month ends there.
    */
@@ -184,7 +271,9 @@
       return {
         id: x.id, value: Math.max(0, +x.value || 0), put: 0, start: Math.max(0, +x.value || 0),
         sip: s ? { amount: s.amount, first: s.amount, step: o.stepMode === 'all' ? Math.max(0, +o.step || 0) : Math.max(0, +s.step || 0),
-                   from: s.start ? monthNo(s.start) : now, until: s.end ? monthNo(s.end) : Infinity } : null
+                   add: o.stepMode === 'all' ? 0 : Math.max(0, +s.stepAmt || 0),
+                   from: s.start ? monthNo(s.start) : now, until: s.end ? monthNo(s.end) : Infinity,
+                   base: o.stepMode !== 'all' && s.stepMonth ? monthNo(s.stepMonth) : (s.start ? monthNo(s.start) : now) } : null
       };
     });
     const sum = k => hs.reduce((s, h) => s + h[k], 0);
@@ -195,7 +284,9 @@
       for (const h of hs) {
         const s = h.sip;
         if (s && cm >= s.from && cm <= s.until) {
-          if (cm > s.from && (cm - s.from) % 12 === 0 && s.step > 0) s.amount *= 1 + s.step / 100;
+          if (cm > s.from && cm > s.base && (cm - s.base) % 12 === 0) {
+            if (s.step > 0) s.amount *= 1 + s.step / 100; else if (s.add > 0) s.amount += s.add;
+          }
           h.value += s.amount; h.put += s.amount;
         }
         h.value *= 1 + i;
@@ -211,5 +302,27 @@
     };
   }
 
-  return { DAY, STAMP_FROM, STAMP_RATE, isoToMs, msToIso, monthNo, monthOf, ymOf, idxOnOrBefore, idxOnOrAfter, xirr, monthDates, simulate, average, inferSip, sipOf, forecast };
+  /**
+   * This month's SIP debits: items [{ id, sip }] with sip as sipOf gives it.
+   * One entry per running SIP that has started, on its debit day (or the
+   * month's last day), with status 'done' once the day has passed, 'today',
+   * or 'due'. Sorted by day. [{ id, t, day, amount, status }]
+   */
+  function monthSips(items, today) {
+    const d = new Date(today), y = d.getUTCFullYear(), m = d.getUTCMonth(), now = y * 12 + m;
+    const dim = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const t0 = Date.UTC(y, m, d.getUTCDate());
+    const out = [];
+    for (const x of items) {
+      const s = x.sip;
+      if (!s || !s.running || !(s.amount > 0) || !s.day) continue;
+      if (s.start && monthNo(s.start) > now) continue;
+      if (s.end && monthNo(s.end) < now) continue;
+      const t = Date.UTC(y, m, Math.min(s.day, dim));
+      out.push({ id: x.id, t, day: s.day, amount: s.amount, status: t < t0 ? 'done' : t === t0 ? 'today' : 'due' });
+    }
+    return out.sort((a, b) => a.t - b.t || b.amount - a.amount);
+  }
+
+  return { DAY, STAMP_FROM, STAMP_RATE, BUY_TYPES, isoToMs, msToIso, monthNo, monthOf, ymOf, idxOnOrBefore, idxOnOrAfter, xirr, monthDates, simulate, average, sipInstalments, sipSteps, inferSip, sipOf, forecast, monthSips };
 });

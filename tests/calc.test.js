@@ -104,3 +104,101 @@ test('the forecast grows today\'s worth and adds running SIPs, with each step-up
   assert.equal(f.rows.length, 3, 'today and each year');
   assert.equal(f.endMonth, '2028-09');
 });
+
+/** Monthly SIP rows on the 10th from `from` ('YYYY-MM'), with amounts [gross...], stamp duty on its own row. */
+function sipTxns(from, amounts, day = 10) {
+  const out = [];
+  let n = C.monthNo(from);
+  for (const a of amounts) {
+    const date = `${C.ymOf(n)}-${String(day).padStart(2, '0')}`, stamp = Math.round(a * 0.00005 * 100) / 100;
+    out.push({ date, type: 'PURCHASE_SIP', amount: a - stamp, units: (a - stamp) / 50, nav: 50 }, { date, type: 'STAMP_DUTY_TAX', amount: stamp });
+    n++;
+  }
+  return out;
+}
+const rep = (a, k) => Array(k).fill(a);
+
+test('SIP instalments carry their stamp duty, shared by amount on a day with two purchases', () => {
+  const tx = sipTxns('2025-01', [5000, 5000]).concat([{ date: '2025-02-10', type: 'PURCHASE', amount: 14999.25, units: 300, nav: 50 }]);
+  tx.find(x => x.date === '2025-02-10' && x.type === 'STAMP_DUTY_TAX').amount = 1;   // 0.25 + 0.75
+  const inst = C.sipInstalments({ txns: tx });
+  assert.equal(inst.length, 2);
+  near(inst[0].gross, 5000, 1e-9);
+  near(inst[1].stamp, 1 * 4999.75 / (4999.75 + 14999.25), 1e-9);
+  assert.equal(inst[1].nav, 50);
+});
+
+test('a step-up SIP: the same % every year is read from the statement', () => {
+  const amts = rep(2000, 12).concat(rep(2200, 12), rep(2420, 12), rep(2662, 5));
+  const s = C.inferSip({ kind: 'cas', asOf: '2024-05-31', txns: sipTxns('2021-01', amts) });
+  assert.deepEqual(s.steps.ups.map(c => [c.date, c.from, c.to]), [['2022-01-10', 2000, 2200], ['2023-01-10', 2200, 2420], ['2024-01-10', 2420, 2662]]);
+  assert.equal(s.steps.yearly, true);
+  assert.equal(s.step, 10);
+  assert.equal(s.stepMonth, '2024-01');
+  assert.equal(s.amount, 2662);
+  assert.equal(s.first, '2021-01-10');
+  // Carried on after the statement: the step-ups due each January since.
+  const h = { kind: 'cas', asOf: '2024-05-31', txns: sipTxns('2021-01', amts) };
+  assert.equal(C.sipOf(h, Date.parse('2024-12-20')).amount, 2662, 'nothing to add before the next January');
+  assert.equal(C.sipOf(h, Date.parse('2025-02-01')).amount, Math.round(2662 * 1.1), 'Jan 2025 added');
+  const now = C.sipOf(h, Date.parse('2026-09-15'));
+  assert.equal(now.amount, Math.round(2662 * 1.1 * 1.1), 'Jan 2025 and Jan 2026');
+  assert.equal(now.seen, 2662);
+  const gone = C.sipOf(Object.assign({}, h, { asOf: '2024-12-31' }), Date.parse('2026-09-15'));
+  assert.equal(gone.running, false, 'no instalment in the statement\'s last 40 days: stopped');
+  assert.equal(gone.amount, 2662, 'a stopped SIP keeps its last amount');
+});
+
+test('a step-up of the same ₹ each year, a single raise, and one odd instalment', () => {
+  const fixed = C.inferSip({ kind: 'cas', asOf: '2023-03-20', txns: sipTxns('2021-03', rep(1000, 12).concat(rep(1500, 12), rep(2000, 1))) });
+  assert.equal(fixed.steps.yearly, true);
+  assert.deepEqual([fixed.step, fixed.stepAmt], [0, 500]);
+  const once = C.inferSip({ kind: 'cas', asOf: '2026-03-31', txns: sipTxns('2025-04', rep(3000, 11).concat([3500])) });
+  assert.deepEqual(once.steps.ups.map(c => [c.from, c.to, c.pct]), [[3000, 3500, 16.7]], 'the latest instalment counts on its own');
+  assert.equal(once.steps.yearly, false);
+  assert.equal(once.step, 0, 'one raise says nothing about next year');
+  const blip = C.inferSip({ kind: 'cas', asOf: '2026-03-31', txns: sipTxns('2025-04', rep(3000, 5).concat([6000], rep(3000, 6))) });
+  assert.equal(blip.steps.changes.length, 0, 'a one-off amount between two runs is not a change');
+  const cut = C.inferSip({ kind: 'cas', asOf: '2026-03-31', txns: sipTxns('2025-04', rep(3000, 6).concat(rep(2000, 6))) });
+  assert.deepEqual(cut.steps.changes.map(c => c.up), [false]);
+  assert.equal(cut.steps.ups.length, 0);
+});
+
+test('two SIPs in one fund: no step-ups read, the month\'s amounts added', () => {
+  const tx = sipTxns('2025-01', rep(1000, 6), 5).concat(sipTxns('2025-01', rep(2000, 6), 20));
+  const s = C.inferSip({ kind: 'cas', asOf: '2025-06-30', txns: tx });
+  assert.equal(s.steps.several, true);
+  assert.equal(s.steps.changes.length, 0);
+  assert.equal(s.amount, 3000);
+});
+
+test('a SIP in a statement that opens with units held may have started earlier', () => {
+  const tx = sipTxns('2025-04', rep(2500, 12));
+  assert.equal(C.inferSip({ kind: 'cas', from: '2025-04-01', openUnits: 120.5, asOf: '2026-03-31', txns: tx }).startKnown, false);
+  assert.equal(C.inferSip({ kind: 'cas', from: '2025-04-01', openUnits: 0, asOf: '2026-03-31', txns: tx }).startKnown, true);
+  assert.equal(C.inferSip({ kind: 'cas', from: '2024-01-01', openUnits: 50, asOf: '2026-03-31', txns: tx }).startKnown, true, 'first SIP well after the statement starts');
+});
+
+test('the forecast adds a fixed ₹ step-up in the month the statement showed it', () => {
+  const today = Date.parse('2026-01-15');
+  const sip = { amount: 1000, running: true, start: '2024-04', end: null, step: 0, stepAmt: 500, stepMonth: '2025-03' };
+  const f = C.forecast([{ id: 'a', value: 0, sip }], { years: 1, rate: 0, today });
+  // Feb 2026 at 1000, Mar 2026 to Jan 2027 at 1500.
+  assert.equal(f.added, 1000 + 11 * 1500);
+  const all = C.forecast([{ id: 'a', value: 0, sip }], { years: 1, rate: 0, today, stepMode: 'all', step: 0 });
+  assert.equal(all.added, 12 * 1000, 'one step-up for all replaces the statement\'s');
+});
+
+test("this month's SIPs: each running SIP on its day, done or due by today's date", () => {
+  const today = Date.parse('2026-02-14');
+  const list = C.monthSips([
+    { id: 'a', sip: { amount: 2000, day: 5, start: '2025-01', running: true } },
+    { id: 'b', sip: { amount: 3000, day: 14, start: '2025-01', running: true } },
+    { id: 'c', sip: { amount: 1000, day: 30, start: '2025-01', running: true } },
+    { id: 'd', sip: { amount: 1000, day: 10, start: '2026-03', running: true } },
+    { id: 'e', sip: { amount: 1000, day: 10, start: '2025-01', end: '2025-12', running: false } },
+    { id: 'f', sip: null }
+  ], today);
+  assert.deepEqual(list.map(x => [x.id, new Date(x.t).toISOString().slice(0, 10), x.status]),
+    [['a', '2026-02-05', 'done'], ['b', '2026-02-14', 'today'], ['c', '2026-02-28', 'due']]);
+});

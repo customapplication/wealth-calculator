@@ -2,7 +2,7 @@
    this browser, and in the owner's Google Sheet when sync.js is connected. */
 (() => {
   'use strict';
-  const { $, $$, esc, full, cmp, pct, units, isoToMs, msToIso, fmtDate, fmtMonth, todayMs, store, hexA, colors,
+  const { $, $$, esc, full, full2, cmp, pct, units, isoToMs, msToIso, fmtDate, fmtMonth, todayMs, store, hexA, colors,
     loadFunds, loadHistory, idxOnOrBefore, idxOnOrAfter, xirr, timeAxis, tooltip, download, shortCategory, groupLabel, DAY,
     pref, setPref, typeSwitch, picker, refreshPickers, icon, seriesColor, loadLinks, amcSite, shortAmc, searchFunds, combo } = MF;
 
@@ -112,30 +112,56 @@
   // AMFI's current name for the scheme, so a renamed fund shows its new name; what you saved is the fallback.
   const nameOf = r => (fundOf(r) ? fundOf(r).n : r.h.name || `Scheme ${r.code}`);
   const normName = n => String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  /** The name without its plan and growth-option parts ("… Fund - Direct Plan - Growth" → "… Fund"), for places that show the plan beside it. */
+  const PLAN_BIT = /^((direct|regular|growth|plan|option)\s*)+$/i;
+  const shortName = r => {
+    const n = nameOf(r), parts = n.split(/\s+-\s+/);
+    const keep = parts.filter((x, i) => i === 0 || !PLAN_BIT.test(x.trim())).join(' - ');
+    return keep.replace(/(\s*-\s*((direct|regular|growth|plan|option)\s*)+)+$/i, '') || n;
+  };
   /** The name you added (or the statement printed), when AMFI's current name differs. */
   const oldName = r => { const f = fundOf(r); return f && r.h.name && normName(r.h.name) !== normName(f.n) ? r.h.name : null; };
   const amcOf = r => { const f = fundOf(r); return (f && f.a) || r.h.amc || ''; };
 
-  function describe(r) {
-    const h = r.h, f = fundOf(r), bits = [];
-    if (f) bits.push(f.p);
-    if (h.kind === 'sip') {
-      bits.push(`SIP ${full(h.amount)} on day ${h.day} since ${fmtMonth(isoToMs(h.start + '-01'))}${h.end ? `, stopped ${fmtMonth(isoToMs(h.end + '-01'))}` : ''}${h.step > 0 ? `, +${h.step}% a year` : ''}`);
-    } else if (h.kind === 'lump') bits.push(`one-time ${full(h.amount)} on ${fmtDate(h.date)}`);
-    else bits.push(h.folio ? `folio ••••${esc(folioEnd(h.folio))}` : 'from your statement');
-    return bits.join(' · ');
+  const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
+  const MON = t => new Date(t).toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' });
+  const monthName = t => new Date(t).toLocaleString('en-IN', { month: 'long', timeZone: 'UTC' });
+  /** What the statement's own SIP rows say (instalments, first and last, step-ups), for a statement fund. */
+  const seenSip = h => (h.kind === 'cas' ? Calc.inferSip(h) : null);
+  /** This month's debit for a SIP: { t, status 'done' | 'today' | 'due' } or null. */
+  const thisMonth = (h, s) => Calc.monthSips([{ id: h.id, sip: s }], todayMs())[0] || null;
+  /** Step-ups: yours, or what the statement shows. "Step-up +10% a year", "+₹500 a year", or the latest raise. */
+  function stepText(h, s, seen) {
+    if (s && s.source !== 'statement' && s.step > 0) return `Step-up +${s.step}% a year`;
+    const st = seen && seen.steps;
+    if (!st || !st.ups.length) return '';
+    if (st.yearly && st.pct) return `Step-up +${st.pct}% a year`;
+    if (st.yearly && st.amt) return `Step-up +${full(st.amt)} a year`;
+    const u = st.ups[st.ups.length - 1];
+    return `Stepped up +${full(u.to - u.from)} in ${fmtMonth(isoToMs(u.date))}`;
   }
-  /** "SIP ₹5,000 a month · running" or "SIP stopped Mar 2025", as a chip. */
-  function sipChip(r) {
+  /** The SIP in a few words, for the card's header: "SIP ₹2,500 on the 10th · running", "SIP stopped Jun 2023", "one-time ₹20,000 on 12 May 2021". */
+  function sipHead(r) {
     const h = r.h, s = sipOf(h);
-    if (h.kind === 'lump') return '';
-    const edit = `data-sip="${esc(h.id)}"`;
-    if (!s) return h.kind === 'cas' ? `<button type="button" class="tagchip" ${edit} aria-label="No SIP seen in the statement. Add its details">${icon('edit')}Add SIP details</button>` : '';
-    const seen = s.source === 'statement' ? ' (from the statement)' : '';
-    const old = s.source === 'statement' && s.asOf && todayMs() - isoToMs(s.asOf) > 45 * DAY ? `, as of ${fmtDate(s.asOf)}` : '';
-    return s.running
-      ? `<button type="button" class="tagchip sip-on" ${edit} aria-label="SIP of ${full(s.amount)} a month, running${seen}${old}. Edit its details">${icon('refresh')}SIP ${full(s.amount)} a month · running${old}</button>`
-      : `<button type="button" class="tagchip sip-off" ${edit} aria-label="SIP stopped${s.end ? ' in ' + fmtMonth(isoToMs(s.end + '-01')) : ''}${seen}. Edit its details">${icon('close')}SIP stopped${s.end ? ' ' + fmtMonth(isoToMs(s.end + '-01')) : ''}</button>`;
+    if (h.kind === 'lump') return `one-time ${full(h.amount)} on ${fmtDate(h.date)}`;
+    if (!s) return h.kind === 'cas' ? 'no SIP' : '';
+    return s.running ? `SIP ${full(s.amount)}${s.day ? ` on the ${ordinal(s.day)}` : ''} · running` : `SIP stopped${s.end ? ` ${fmtMonth(isoToMs(s.end + '-01'))}` : ''}`;
+  }
+  /** Pills under the name, on every tab: a step-up, and this month's debit. */
+  function sipPills(r) {
+    const h = r.h, s = sipOf(h);
+    if (h.kind === 'lump' || !s) return '';
+    const seen = seenSip(h), pills = [];
+    const step = stepText(h, s, seen);
+    if (step) pills.push(`<span class="pill step" title="${esc(stepTitle(seen))}">${icon('stepup')}${esc(step)}</span>`);
+    const m = s.running ? thisMonth(h, s) : null;
+    if (m) pills.push(m.status === 'done' ? `<span class="pill ok">${icon('check')}Completed for ${esc(MON(m.t))}</span>`
+      : `<span class="pill due">${icon('cal')}${m.status === 'today' ? 'Due today' : `Due ${new Date(m.t).getUTCDate()} ${esc(MON(m.t))}`}</span>`);
+    return pills.length ? `<div class="pills-row">${pills.join('')}</div>` : '';
+  }
+  function stepTitle(seen) {
+    const ch = seen && seen.steps ? seen.steps.changes : [];
+    return ch.map(c => `${fmtMonth(isoToMs(c.date))}: ${full(c.from)} to ${full(c.to)}`).join('; ');
   }
 
   /** A statement fund with no units left (fully sold, or merged into another scheme) needs no NAV to be counted. */
@@ -264,7 +290,7 @@
     const list = await Promise.all(P.holdings.map(buildOne));
     if (token !== computeToken) return;
     results = list;
-    renderHome(); renderSummary(); renderGroups(); renderChart(); renderMix(); renderNotes(); renderStatementCard();
+    renderHome(); renderSummary(); renderDebits(); renderGroups(); renderChart(); renderMix(); renderNotes(); renderStatementCard();
     publishValuation();
   }
 
@@ -288,7 +314,7 @@
   /** For the Sheet: "₹5,000 a month" / "Stopped Mar 2025" / "". */
   function sipText(h) {
     const x = sipOf(h);
-    return !x ? '' : x.running ? `${full(x.amount)} a month${x.step > 0 ? `, +${x.step}% a year` : ''}` : `Stopped${x.end ? ' ' + fmtMonth(isoToMs(x.end + '-01')) : ''}`;
+    return !x ? '' : x.running ? `${full(x.amount)} a month${x.step > 0 ? `, +${x.step}% a year` : x.stepAmt > 0 ? `, +${full(x.stepAmt)} a year` : ''}` : `Stopped${x.end ? ' ' + fmtMonth(isoToMs(x.end + '-01')) : ''}`;
   }
 
   function renderEmpty() {
@@ -330,65 +356,67 @@
       gs.map((g, i) => row(g.name, seriesColor(c, i), g.t)).join('') + (gs.length > 1 ? row('All', null, t, true) : '') + '</tbody>';
   }
 
-  /** Upcoming instalments: SIPs added by hand, and SIPs seen in a recent statement. */
-  function upcoming() {
-    const today = todayMs(), out = [];
-    const nextOn = (day, from) => {
-      const d = new Date(from);
-      for (let i = 0; i < 3; i++) {
-        const y = d.getUTCFullYear(), m = d.getUTCMonth() + i;
-        const dim = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-        const t = Date.UTC(y, m, Math.min(day, dim));
-        if (t >= from) return t;
-      }
-      return null;
-    };
-    for (const r of results) {
-      const h = r.h;
-      const s = sipOf(h);
-      if (h.kind === 'cas' && s && s.source === 'you') {
-        // Details you gave a statement fund: its day and amount.
-        if (!s.running || !s.day) continue;
-        const t = nextOn(s.day, today);
-        if (t == null) continue;
-        const d = new Date(t), m = d.getUTCFullYear() * 12 + d.getUTCMonth(), from = s.start ? Calc.monthNo(s.start) : m;
-        const now = Calc.monthOf(today);
-        out.push({ t, amount: s.amount * (m > now && m > from && (m - from) % 12 === 0 && s.step > 0 ? 1 + s.step / 100 : 1), r, est: false });
-        continue;
-      }
-      if (h.kind === 'cas' && s === null && h.sip && h.sip.none) continue;
-      if (h.kind === 'sip') {
-        if (h.end && h.end < msToIso(today).slice(0, 7)) continue;
-        const t = nextOn(h.day, today);
-        if (t == null) continue;
-        const [sy, sm] = h.start.split('-').map(Number), d = new Date(t);
-        const k = (d.getUTCFullYear() - sy) * 12 + (d.getUTCMonth() + 1 - sm);
-        if (k < 0) continue;
-        out.push({ t, amount: h.amount * Math.pow(1 + (h.step || 0) / 100, Math.floor(k / 12)), r, est: false });
-      } else if (h.kind === 'cas' && h.asOf && today - isoToMs(h.asOf) < 45 * DAY) {
-        // A statement from the last few weeks: the next SIP should follow its last instalment.
-        const sips = (h.txns || []).filter(x => x.type === 'PURCHASE_SIP');
-        const last = sips[sips.length - 1];
-        if (!last || isoToMs(h.asOf) - isoToMs(last.date) > 40 * DAY) continue;
-        const stamp = (h.txns || []).filter(x => x.date === last.date && x.type === 'STAMP_DUTY_TAX').reduce((s, x) => s + Math.abs(x.amount || 0), 0);
-        const t = nextOn(+last.date.slice(8, 10), Math.max(today, isoToMs(last.date) + DAY));
-        if (t != null) out.push({ t, amount: Math.round(Math.abs(last.amount) + stamp), r, est: true });
-      }
-    }
-    return out.sort((a, b) => a.t - b.t);
+  /** This month's SIP debits, every running SIP, with the holding and its SIP. */
+  function monthList() {
+    const items = results.map(r => ({ id: r.h.id, sip: sipOf(r.h), r }));
+    const by = new Map(items.map(x => [x.id, x]));
+    return Calc.monthSips(items, todayMs()).map(x => Object.assign(x, { r: by.get(x.id).r, s: by.get(x.id).sip }));
   }
+  /** SIPs seen only in a statement that ended weeks ago are taken as still running: say so, once. */
+  function oldStatementNote(list) {
+    const old = list.filter(x => x.s.source === 'statement' && x.s.asOf && todayMs() - isoToMs(x.s.asOf) > 45 * DAY);
+    if (!old.length) return '';
+    const upto = old.map(x => x.s.asOf).sort().pop();
+    return `${old.length === list.length ? 'These SIPs are' : `${old.length} of these SIPs are`} seen only in your statement to ${fmtDate(upto)}, and taken as still running. Import a newer statement, or open a fund's SIP details, if one has stopped.`;
+  }
+  const STATUS = { done: ['done', 'Completed'], today: ['today', 'Due today'], due: ['due', 'Pending'] };
   function renderNext() {
-    const list = upcoming(), soon = list.filter(x => x.t - todayMs() <= 31 * DAY);
-    const cas = results.some(r => r.h.kind === 'cas');
-    const fresh = results.some(r => r.h.kind === 'cas' && r.h.asOf && todayMs() - isoToMs(r.h.asOf) < 45 * DAY);
-    $('#homeNextSum').textContent = soon.length ? `${full(soon.reduce((s, x) => s + x.amount, 0))} in the next month` : '';
-    const MON = t => new Date(t).toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' });
-    $('#homeNextList').innerHTML = list.slice(0, 5).map(x => {
-      const f = fundOf(x.r);
-      return `<li><span class="day"><b>${new Date(x.t).getUTCDate()}</b><small>${MON(x.t)}</small></span>
-        <span class="who"><b>${esc(nameOf(x.r))}</b><small>${esc(f ? shortCategory(f.k) + ' · ' + f.p : '')}${x.est ? ' · expected, like your last instalment' : ''}</small></span>
-        <span class="amt">${full(x.amount)}</span></li>`;
-    }).join('') || `<li class="none">${cas && !fresh ? 'Your statement is more than a few weeks old. Import a recent one to see your next SIPs.' : 'No running SIPs yet.'}</li>`;
+    const list = monthList(), today = todayMs();
+    const total = list.reduce((a, x) => a + x.amount, 0), done = list.filter(x => x.status === 'done').reduce((a, x) => a + x.amount, 0);
+    $('#homeNextTitle').textContent = `SIPs in ${monthName(today)}`;
+    $('#homeNextSum').textContent = list.length ? `${full(done)} of ${full(total)} done` : '';
+    const bar = $('#homeNextBar');
+    bar.hidden = !list.length;
+    if (list.length) { $('i', bar).style.width = `${total > 0 ? Math.round(100 * done / total) : 0}%`; bar.setAttribute('title', `${list.filter(x => x.status === 'done').length} of ${list.length} SIPs done this month`); }
+    $('#homeNextList').innerHTML = list.map(x => {
+      const f = fundOf(x.r), [cls, label] = STATUS[x.status];
+      return `<li class="st-${cls}"><span class="day"><b>${new Date(x.t).getUTCDate()}</b><small>${MON(x.t)}</small></span>
+        <span class="who"><b title="${esc(nameOf(x.r))}">${esc(f ? shortName(x.r) : nameOf(x.r))}</b><small>${esc(f ? shortCategory(f.k) + ' · ' + f.p : '')}</small></span>
+        <span class="amt-col"><span class="amt">${full(x.amount)}</span><span class="st ${cls}">${x.status === 'done' ? icon('check') : ''}${label}</span></span></li>`;
+    }).join('') || `<li class="none">${results.some(r => r.h.kind !== 'lump') ? 'No SIP is running this month.' : 'No SIPs yet. Add one, or import your statement.'}</li>`;
+    const note = oldStatementNote(list);
+    $('#homeNextNote').hidden = !note; $('#homeNextNote').textContent = note;
+  }
+
+  /* ---------- Portfolio: every running SIP by its debit day ---------- */
+  let debitsAll = false;
+  function renderDebits() {
+    const list = monthList(), card = $('#pfSips');
+    const stopped = results.filter(r => { const x = sipOf(r.h); return x && !x.running; }).length;
+    card.hidden = !list.length && !stopped;
+    if (card.hidden) return;
+    const days = new Map();
+    list.forEach(x => { if (!days.has(x.day)) days.set(x.day, []); days.get(x.day).push(x); });
+    const total = list.reduce((a, x) => a + x.amount, 0);
+    $('#pfSipsSum').textContent = list.length
+      ? `${full(total)} a month · ${list.length} SIP${list.length === 1 ? '' : 's'} on ${days.size === 1 ? 'one day' : `${days.size} days`} of the month`
+      : 'No SIP is running.';
+    const LIMIT = 6;
+    let shown = 0, folded = 0;
+    $('#pfSipsList').innerHTML = [...days].map(([day, xs]) => {
+      const hide = !debitsAll && shown >= LIMIT;
+      shown += xs.length;
+      if (hide) folded += xs.length;
+      const sum = xs.reduce((a, x) => a + x.amount, 0);
+      return `<li class="dgrp"${hide ? ' hidden' : ''}><span class="dday"><b>${day}</b><small>${ordinal(day).slice(String(day).length)}</small></span>
+        <ul>${xs.map(x => `<li class="st-${STATUS[x.status][0]}"><span class="nm" title="${esc(nameOf(x.r))}"><span class="t">${esc(fundOf(x.r) ? shortName(x.r) : nameOf(x.r))}</span>${fundOf(x.r) ? `<small>${esc(fundOf(x.r).p)}</small>` : ''}</span><span class="am">${full(x.amount)}</span><span class="st" title="${STATUS[x.status][1]} for ${esc(monthName(x.t))}">${x.status === 'done' ? icon('check') : ''}<span class="sr-only">${STATUS[x.status][1]}</span></span></li>`).join('')}
+        ${xs.length > 1 ? `<li class="dsum"><span class="nm">On the ${ordinal(day)}</span><span class="am">${full(sum)}</span><span class="st"></span></li>` : ''}</ul></li>`;
+    }).join('');
+    const more = $('#pfSipsMore');
+    more.hidden = !(folded || debitsAll && shown > LIMIT && days.size > 1);
+    more.setAttribute('aria-expanded', String(debitsAll));
+    more.textContent = debitsAll ? 'Show fewer' : `Show all ${list.length} SIPs`;
+    $('#pfSipsNote').innerHTML = [stopped ? `${stopped} stopped SIP${stopped === 1 ? " isn't" : "s aren't"} listed. <button type="button" class="linkish" data-group-sip>See them</button>` : '', esc(oldStatementNote(list))].filter(Boolean).join(' ');
   }
 
   function renderHomeChart() {
@@ -460,7 +488,10 @@
     sipFor = h;
     const cas = h.kind === 'cas', seen = cas ? Calc.inferSip(h) : null, s = sipOf(h);
     const base = cas ? (h.sip && +h.sip.amount > 0 ? h.sip : seen) : h;
-    $('#sipFund').textContent = h.name || '';
+    const r = results.find(x => x.h.id === id);
+    $('#sipFund').textContent = r ? nameOf(r) : h.name || '';
+    $('#sipFacts').innerHTML = sipFacts(h, s, seen);
+    $('#sipFacts').hidden = !$('#sipFacts').innerHTML;
     $('#sipAmtLbl').textContent = cas ? 'Monthly amount now' : 'Amount of the first SIP';
     $('#sipNote').textContent = cas
       ? (h.sip && h.sip.none ? "You said this fund has no SIP." : h.sip && +h.sip.amount > 0 ? 'These are the details you gave. Your statement still decides the units and value.'
@@ -479,6 +510,32 @@
     $('#sipReset').hidden = !(h.sip);
     $('#sipMsg').textContent = ''; $('#sipMsg').classList.remove('bad');
     window.Shell.openPanel('panelSip', '#sipAmt');
+  }
+  /** The SIP at a glance: what's debited, when, since when, how many instalments, step-ups, and this month. */
+  function sipFacts(h, s, seen, o = {}) {
+    const row = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`, rows = [];
+    if (!s && !seen) return '';
+    if (s && s.running) {
+      rows.push(row('Amount now', `${full(s.amount)} a month`));
+      if (s.day) rows.push(row('Debit day', `The ${ordinal(s.day)} of each month`));
+      const m = thisMonth(h, s);
+      if (m) rows.push(row(`This month`, m.status === 'done' ? `Completed on ${new Date(m.t).getUTCDate()} ${MON(m.t)}` : m.status === 'today' ? 'Due today' : `Pending, due ${new Date(m.t).getUTCDate()} ${MON(m.t)}`));
+    } else if (s) rows.push(row('Status', `Stopped${s.end ? ` in ${fmtMonth(isoToMs(s.end + '-01'))}` : ''}`));
+    const own = s && s.source !== 'statement';
+    if (seen) {
+      rows.push(row('First instalment', `${fmtDate(seen.first)}${seen.startKnown ? '' : ' <small>(or earlier: your statement starts then)</small>'}`));
+      rows.push(row(seen.running ? 'Latest instalment' : 'Last instalment', `${fmtDate(seen.last)}, ${full(Math.round(Calc.sipInstalments(h).slice(-1)[0].gross))}`));
+      const inst = Calc.sipInstalments(h);
+      rows.push(row('Instalments', `${seen.count} in your statement, ${full(inst.reduce((a, x) => a + x.gross, 0))} in all`));
+      const ch = seen.steps.changes;
+      if (seen.steps.several) rows.push(row('Step-ups', 'More than one SIP in this fund, so the statement can\'t show them'));
+      else if (o.steps === false) { /* listed under the facts instead */ }
+      else rows.push(row('Step-ups', ch.length ? ch.map(c => `${fmtMonth(isoToMs(c.date))}: ${full(c.from)} to ${full(c.to)} (${c.up ? '+' : '−'}${Math.abs(c.pct)}%)`).join('<br>') : 'None in your statement'));
+    } else if (s && own) {
+      if (s.start) rows.push(row('Started', fmtMonth(isoToMs(s.start + '-01'))));
+      if (s.step > 0) rows.push(row('Step-up', `+${s.step}% a year`));
+    }
+    return rows.join('');
   }
   function saveSip() {
     const h = sipFor; if (!h) return;
@@ -500,6 +557,117 @@
     window.Shell.closePanel();
   }
 
+  /* ---------- transaction history: the statement's rows, or the instalments worked out for a SIP you entered ---------- */
+  const TX_LABEL = {
+    PURCHASE: 'One-time', PURCHASE_SIP: 'SIP', REDEMPTION: 'Sold', SWITCH_IN: 'Switch in', SWITCH_IN_MERGER: 'Merger in',
+    SWITCH_OUT: 'Switch out', SWITCH_OUT_MERGER: 'Merger out', DIVIDEND_PAYOUT: 'Dividend paid', DIVIDEND_REINVEST: 'Dividend reinvested',
+    BONUS: 'Bonus units', TRANSFER_IN: 'Transfer in', TRANSFER_OUT: 'Transfer out', REVERSAL: 'Reversal', SEGREGATION: 'Segregation',
+    STAMP_DUTY_TAX: 'Stamp duty', STT_TAX: 'STT', TDS_TAX: 'TDS', MISC: 'Other'
+  };
+  const SELL_TYPES = new Set(['REDEMPTION', 'SWITCH_OUT', 'SWITCH_OUT_MERGER']);
+  const txKind = t => t === 'PURCHASE_SIP' ? 'sip' : Calc.BUY_TYPES.has(t) ? 'buy' : SELL_TYPES.has(t) ? 'sell' : 'other';
+  const money = v => Math.abs(v - Math.round(v)) < 0.005 ? full(v) : full2(v);
+  const dayMon = iso => new Date(isoToMs(iso)).toLocaleString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  /** [{ date, type, amount (what left or reached the bank), net, units, nav, stamp, tax }] oldest first. */
+  function txnRows(r) {
+    const h = r.h;
+    if (h.kind !== 'cas') {
+      return (r.events || []).map(e => {
+        const stamp = e.t >= STAMP_FROM ? e.inv * STAMP_RATE : 0;
+        return { date: msToIso(e.t), type: h.kind === 'sip' ? 'PURCHASE_SIP' : 'PURCHASE', amount: e.inv, net: e.inv - stamp, units: e.du, nav: e.nav, stamp, tax: 0 };
+      });
+    }
+    const all = (h.txns || []).filter(x => x && x.date);
+    const sum = new Map(), add = (k, v) => sum.set(k, (sum.get(k) || 0) + v);
+    for (const x of all) {
+      const a = Math.abs(x.amount || 0);
+      if (TAX_TYPES.has(x.type)) add(`${x.date}|${x.type === 'STAMP_DUTY_TAX' ? 'stamp' : 'tax'}`, a);
+      else if (Calc.BUY_TYPES.has(x.type)) add(`${x.date}|buy`, a);
+      else if (SELL_TYPES.has(x.type)) add(`${x.date}|sell`, a);
+    }
+    const rows = [];
+    for (const x of all) {
+      const a = Math.abs(x.amount || 0);
+      if (x.type === 'STAMP_DUTY_TAX' && sum.get(`${x.date}|buy`)) continue;
+      if ((x.type === 'STT_TAX' || x.type === 'TDS_TAX') && sum.get(`${x.date}|sell`)) continue;
+      const row = { date: x.date, type: x.type, amount: a, net: a, units: x.units, nav: x.nav, stamp: 0, tax: 0 };
+      if (Calc.BUY_TYPES.has(x.type) && sum.get(`${x.date}|buy`)) { row.stamp = (sum.get(`${x.date}|stamp`) || 0) * a / sum.get(`${x.date}|buy`); row.amount = a + row.stamp; }
+      if (SELL_TYPES.has(x.type) && sum.get(`${x.date}|sell`)) { row.tax = (sum.get(`${x.date}|tax`) || 0) * a / sum.get(`${x.date}|sell`); }
+      rows.push(row);
+    }
+    return rows.sort(byDate);
+  }
+
+  /** One history row: date, type, amount, then NAV · units and the stamp duty (or tax). */
+  function txnLi(x) {
+    const k = txKind(x.type), u = +x.units || 0, bits = [];
+    if (x.nav != null && x.nav !== '' && +x.nav > 0) bits.push(`NAV ₹${navText(x.nav)}`);
+    if (u) bits.push(`${u < 0 ? '−' : ''}${units(Math.abs(u))} units`);
+    const right = x.stamp > 0 ? `stamp ${full2(x.stamp)}` : x.tax > 0 ? `tax ${full2(x.tax)}` : '';
+    return `<li class="txn"><b class="d">${dayMon(x.date)}</b><span><span class="tp tp-${k}">${esc(TX_LABEL[x.type] || x.type)}</span></span><b class="a${k === 'sell' ? ' out' : ''}">${x.amount ? (k === 'sell' ? '−' : '') + money(x.amount) : '—'}</b>
+      <span></span><span class="m">${bits.join(' · ')}</span><span class="m r">${right}</span></li>`;
+  }
+  const stepMark = c => `<li class="txn-mark ${c.up ? 'up' : 'down'}">${icon(c.up ? 'stepup' : 'down')}${c.up ? 'Step-up' : 'Lowered'} from ${fmtMonth(isoToMs(c.date))}: ${full(c.from)} to ${full(c.to)} a month (${c.up ? '+' : '−'}${Math.abs(c.pct)}%)</li>`;
+  /** Where a SIP's amount changed: the statement's step-ups, or a hand-entered SIP's yearly ones. */
+  function stepMarks(r, rows) {
+    const h = r.h, marks = new Map();
+    if (h.kind === 'cas') Calc.sipSteps(Calc.sipInstalments(h)).changes.forEach(c => marks.set(c.date, c));
+    if (h.kind === 'sip' && h.step > 0) rows.forEach((x, i) => {
+      const a = i && Math.round(rows[i - 1].amount), b = Math.round(x.amount);
+      if (i && a !== b) marks.set(x.date, { date: x.date, from: a, to: b, up: b > a, pct: Math.round((b / a - 1) * 1000) / 10 });
+    });
+    return marks;
+  }
+  /** Bought, sold and stamp duty over a fund's rows. */
+  function txnTotals(rows) {
+    const of = k => rows.filter(x => txKind(x.type) === k);
+    return {
+      bought: of('sip').concat(of('buy').filter(x => x.type !== 'DIVIDEND_REINVEST')).reduce((a, x) => a + x.amount, 0),
+      sold: of('sell').reduce((a, x) => a + x.amount, 0),
+      stamp: rows.reduce((a, x) => a + x.stamp, 0) + rows.filter(x => x.type === 'STAMP_DUTY_TAX').reduce((a, x) => a + x.amount, 0),
+      sips: of('sip').length
+    };
+  }
+
+  let txnFor = null, txnShow = 'all';
+  function openTxns(id) {
+    const r = results.find(x => x.h.id === id);
+    if (!r) return;
+    txnFor = r; txnShow = 'all';
+    renderTxns();
+    window.Shell.openPanel('panelTxn', '#txnFilter input:checked, #txnList');
+  }
+  function renderTxns() {
+    const r = txnFor, h = r.h, rows = txnRows(r), f = fundOf(r);
+    $('#txnFund').textContent = f ? `${shortName(r)} · ${f.p} · ${f.o}` : nameOf(r);
+    const tot = txnTotals(rows);
+    const held = (h.kind === 'cas' ? +h.openUnits || 0 : 0) + (r.error ? rows.reduce((a, x) => a + (+x.units || 0), 0) : r.units || 0);
+    const cell = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+    $('#txnSum').innerHTML = cell('Bought', money(tot.bought)) + (tot.sold ? cell('Sold', money(tot.sold)) : '') + cell('Stamp duty', full2(tot.stamp)) + cell('Units now', units(held));
+    $('#txnSum').style.setProperty('--cols', tot.sold ? 2 : 3);
+    const nSip = tot.sips, counts = { all: rows.length, sip: nSip, other: rows.length - nSip };
+    const filt = $('#txnFilter');
+    filt.hidden = !nSip || nSip === rows.length;
+    filt.innerHTML = [['all', 'All'], ['sip', 'SIP'], ['other', 'Other']].map(([v, l]) =>
+      `<label><input type="radio" name="txn-show" value="${v}"${txnShow === v ? ' checked' : ''}><span>${l} <small>${counts[v]}</small></span></label>`).join('');
+    const shown = rows.filter(x => txnShow === 'all' || (txnShow === 'sip') === (x.type === 'PURCHASE_SIP')).reverse();
+    const marks = txnShow === 'other' ? new Map() : stepMarks(r, rows);
+    const step = h.kind === 'sip' && h.step > 0 ? h.step : 0;
+    let year = null, html = '';
+    for (const x of shown) {
+      const y = x.date.slice(0, 4);
+      if (y !== year) { html += `${year ? '</ul>' : ''}<h3 class="txn-year">${y}</h3><ul>`; year = y; }
+      html += txnLi(x);
+      const c = marks.get(x.date);
+      if (c && x.type === 'PURCHASE_SIP') html += stepMark(c);
+    }
+    $('#txnList').innerHTML = html ? html + '</ul>' : '<p class="muted">No transactions.</p>';
+    const per = P.casPeriod || {};
+    $('#txnNote').innerHTML = h.kind === 'cas'
+      ? `From your statement${h.from ? `, ${fmtDate(h.from)} to ${fmtDate(h.asOf || per.to)}` : ''}. Stamp duty is added to each purchase, so the amount is what left your bank.${+h.openUnits > 0.0005 ? ` You already held ${units(h.openUnits)} units when the statement starts; they count in Units now but not in Bought.` : ''}`
+      : `Worked out from AMFI NAVs: each ${h.kind === 'sip' ? 'instalment' : 'purchase'} at the first NAV on or after its date, less 0.005% stamp duty from July 2020${step ? `, with your ${step}% step-up each year` : ''}. Your real allotment can land a day or two later. Import your statement for the exact units.`;
+  }
+
   /** A pill that opens the fund house's own website, where you log in. */
   function loginPill(amc) {
     const site = amcSite(amc);
@@ -512,7 +680,7 @@
   const RTA_NAME = { CAMS: 'CAMS', KFINTECH: 'KFintech' };
 
   /* What the statement says about a fund beyond its money: folio, registrar, nominees, KYC, exit load. */
-  function casDetails(r) {
+  function folioRows(r) {
     const h = r.h;
     if (h.kind !== 'cas') return '';
     const row = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`, rows = [];
@@ -531,42 +699,97 @@
     if (h.demat) rows.push(row('Held', 'In your demat account'));
     if (h.stmt && h.stmt.value != null) rows.push(row('Statement', `Worth ${full(h.stmt.value)} on ${fmtDate(h.stmt.date)}${h.stmt.cost != null ? `, cost of the units held ${full(h.stmt.cost)}` : ''}`));
     if (h.load) rows.push(row('Exit load', `<span class="load">${esc(h.load)}</span>`));
-    if (!rows.length) return '';
-    return `<details class="hold-more"><summary>Folio, nominees and exit load</summary><dl>${rows.join('')}</dl></details>`;
+    return rows.join('');
   }
 
   const navText = v => v == null ? '—' : Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  function holdingHtml(r) {
-    const h = r.h, name = esc(nameOf(r));
-    const goal = (h.goal || '').trim();
-    const goalBtn = `<button type="button" class="tagchip" data-goal="${esc(h.id)}" aria-label="${goal ? `Goal: ${esc(goal)}. Change it` : 'Set a goal'}">${icon('tag')}${goal ? esc(goal) : 'Set a goal'}</button>`;
-    const actions = `<span class="hold-actions"><button type="button" class="linkish" data-remove="${esc(h.id)}" aria-label="Remove ${name}">Remove</button></span>`;
-    const login = loginPill(amcOf(r));
-    if (r.error) {
-      return `<article class="hold"><div class="hold-top"><span class="hold-name">${name}</span></div>
-        <div class="hold-meta"><span>${describe(r)}</span></div><p class="hold-err">${esc(r.error)}</p>
-        <div class="hold-tags">${sipChip(r)}${login}${goalBtn}${actions}</div>${casDetails(r)}</article>`;
-    }
+  /* ---------- a fund's card: name and worth, then Overview / SIP / History / Folio tabs ---------- */
+  const cardTab = new Map();          // the tab each card shows, kept across redraws
+  const TABS = { ov: 'Overview', sip: 'SIP', his: 'History', fol: 'Folio' };
+  function overviewTab(r, name) {
+    const h = r.h, goal = (h.goal || '').trim();
+    const fig = (k, v, cls) => `<div><span>${k}</span><b class="${cls || ''}">${v}</b></div>`;
+    const figs = r.error ? `<p class="hold-err">${esc(r.error)}</p>` : `<div class="hold-figs">${r.closed
+      ? fig('Put in', full(r.moneyIn)) + fig('Taken out', full(r.moneyOut)) + fig('Gain', signed(r.gain, full), signCls(r.gain))
+      : fig('Put in', full(r.net)) + fig('Gain', signed(r.gain, full), signCls(r.gain)) + fig('XIRR', r.xirr != null ? pct(r.xirr, 1) : '—')}</div>
+      <p class="hold-nav">${r.closed
+        ? `No units left · last transaction ${fmtDate(r.lastT)}${r.xirr != null ? ` · XIRR <b>${pct(r.xirr, 1)}</b>` : ''}`
+        : `${units(r.units)} units × NAV <b>₹${navText(r.lastNav)}</b> (${dayMon(msToIso(r.lastT))})${r.dayBase > 0 ? ` · <b class="${signCls(r.dayChange)}">${signed(r.dayChange, full)}</b> since ${dayMon(msToIso(r.prevT))}` : ''}`}</p>`;
     const check = r.unitsMatch == null ? '' : r.unitsMatch
       ? `<span class="tagchip ok">${icon('check')}Units match your statement</span>`
       : `<span class="tagchip warn">Statement says ${units(h.closeUnits)} units</span>`;
-    const g = r.net > 0 ? r.gain / r.net : null;
     const lock = r.lock && r.lock.units > 0.0005
       ? `<span class="tagchip" title="ELSS units can be sold 3 years after each purchase">${icon('lock')}${cmp(r.lock.value)} locked, next free ${fmtDate(r.lock.next)}</span>`
       : r.lock ? `<span class="tagchip ok">${icon('lock')}No units locked</span>` : '';
-    const kyc = r.h.kind === 'cas' && ((r.h.kyc && r.h.kyc !== 'OK') || r.h.panOk === false)
-      ? `<span class="tagchip warn">${r.h.panOk === false ? 'PAN not OK' : `KYC ${esc(r.h.kyc.toLowerCase())}`} on the statement</span>` : '';
-    return `<article class="hold">
-      <div class="hold-top"><span class="hold-name">${name}</span><span class="hold-worth">${full(r.value)}</span></div>
-      <div class="hold-meta"><span>${describe(r)}</span><span class="pct ${signCls(r.gain)}">${g != null ? signed(g, x => pct(x, 1)) : ''}</span></div>
-      <div class="hold-nums">${r.closed ? `<span>In <b>${full(r.moneyIn)}</b> · out <b>${full(r.moneyOut)}</b></span>` : `<span>Put in <b>${full(r.net)}</b></span>`}<span>Gain <b class="${signCls(r.gain)}">${signed(r.gain, full)}</b></span><span>XIRR <b>${r.xirr != null ? pct(r.xirr, 1) : '—'}</b></span>${r.closed
-        ? `<span>No units left · last transaction ${fmtDate(r.lastT)}</span>`
-        : `<span>${units(r.units)} units × NAV <b>₹${navText(r.lastNav)}</b> of ${fmtDate(r.lastT)}</span>${r.dayBase > 0 ? `<span>Since ${fmtDate(r.prevT)} <b class="${signCls(r.dayChange)}">${signed(r.dayChange, full)}</b></span>` : ''}`}</div>
-      ${oldName(r) && r.h.kind !== 'cas' ? `<p class="muted small">AMFI now calls it this; you added it as “${esc(oldName(r))}”.</p>` : ''}
+    const kyc = h.kind === 'cas' && ((h.kyc && h.kyc !== 'OK') || h.panOk === false)
+      ? `<span class="tagchip warn">${h.panOk === false ? 'PAN not OK' : `KYC ${esc(h.kyc.toLowerCase())}`} on the statement</span>` : '';
+    const goalChip = goal ? `<button type="button" class="tagchip" data-goal="${esc(h.id)}" aria-label="Goal: ${esc(goal)}. Change it">${icon('tag')}${esc(goal)}</button>` : '';
+    const tags = [check, lock, kyc, goalChip].filter(Boolean).join('');
+    return `${figs}
+      ${tags ? `<div class="hold-tags">${tags}</div>` : ''}
+      ${oldName(r) && h.kind !== 'cas' ? `<p class="muted small">AMFI now calls it this; you added it as “${esc(oldName(r))}”.</p>` : ''}
       ${r.warn.length ? `<p class="muted small">${r.warn.map(esc).join(' ')}</p>` : ''}
-      <div class="hold-tags">${sipChip(r)}${check}${lock}${kyc}${login}${goalBtn}${actions}</div>
-      ${casDetails(r)}
+      <div class="hold-foot">${loginPill(amcOf(r)) || '<span></span>'}
+        <button type="button" class="btn-icon soft" data-more="${esc(h.id)}" aria-expanded="false" aria-label="More for ${name}: goal, remove">${icon('more')}</button></div>
+      <div class="hold-extra" hidden>
+        <button type="button" class="tagchip" data-goal="${esc(h.id)}" aria-label="${goal ? `Goal: ${esc(goal)}. Change it` : 'Set a goal'}">${icon('tag')}${goal ? 'Change the goal' : 'Set a goal'}</button>
+        <button type="button" class="linkish danger" data-remove="${esc(h.id)}" aria-label="Remove ${name}">Remove</button>
+      </div>`;
+  }
+  function sipTab(r) {
+    const h = r.h, s = sipOf(h), seen = seenSip(h);
+    const edit = label => `<button type="button" class="btn quiet sm" data-sip="${esc(h.id)}">${icon('edit')}${label}</button>`;
+    if (!s && !seen) return `<p class="muted small">${h.sip && h.sip.none ? 'You said this fund has no SIP.' : h.kind === 'cas' ? 'Your statement shows no SIP instalments in this fund.' : 'No SIP.'}</p>${edit('Add SIP details')}`;
+    const notes = [];
+    if (s && s.source === 'you' && h.kind === 'cas') notes.push('The amount, day and step-up are the details you gave; the rest is from your statement.');
+    else if (h.sip && h.sip.none) notes.push('You said this fund has no SIP now.');
+    if (s && s.source === 'statement' && s.asOf && todayMs() - isoToMs(s.asOf) > 45 * DAY) notes.push(`As of your statement to ${fmtDate(s.asOf)}.`);
+    const ch = seen && !seen.steps.several ? seen.steps.changes : null;
+    const steps = ch ? `<div class="sip-steps"><b>${ch.length ? 'Step-ups seen in your statement' : 'No step-up in your statement'}</b>${ch.length ? `<ul>${ch.map(c =>
+      `<li class="${c.up ? 'up' : 'down'}">${icon(c.up ? 'stepup' : 'down')}<span>${fmtMonth(isoToMs(c.date))}: <span class="nowrap">${full(c.from)} to ${full(c.to)}</span> <span class="nowrap">(${c.up ? '+' : '−'}${Math.abs(c.pct)}%)</span></span></li>`).join('')}</ul>` : ''}</div>` : '';
+    return `<dl class="sip-facts">${sipFacts(h, s, seen, { steps: false })}</dl>${steps}${notes.length ? `<p class="muted small">${notes.join(' ')}</p>` : ''}${edit('Edit SIP details')}`;
+  }
+  function historyTab(r) {
+    const rows = txnRows(r);
+    if (!rows.length) return '<p class="muted small">No transactions.</p>';
+    const t = txnTotals(rows), marks = stepMarks(r, rows);
+    const last = rows.slice(-4).reverse();
+    const since = fmtDate(rows[0].date);
+    return `<p class="hold-hsum">${rows.length} transaction${rows.length === 1 ? '' : 's'} since ${since} · bought ${money(t.bought)}${t.sold ? ` · sold ${money(t.sold)}` : ''} · stamp duty ${full2(t.stamp)}</p>
+      <ul class="txn-mini">${last.map(x => txnLi(x) + (marks.get(x.date) && x.type === 'PURCHASE_SIP' ? stepMark(marks.get(x.date)) : '')).join('')}</ul>
+      <button type="button" class="btn quiet sm" data-txns="${esc(r.h.id)}">${icon('list')}${rows.length > last.length ? `See all ${rows.length} transactions` : 'Open the history'}</button>
+      ${r.h.kind === 'cas' ? '' : '<p class="muted small">Worked out from AMFI NAVs; import your statement for the exact units.</p>'}`;
+  }
+  function holdingHtml(r) {
+    const h = r.h, name = esc(nameOf(r)), f = fundOf(r), id = esc(h.id);
+    const title = f ? esc(shortName(r)) : name;
+    const sub = [f ? f.p : '', sipHead(r)].filter(Boolean).join(' · ');
+    const g = r.net > 0 ? r.gain / r.net : null;
+    const folio = folioRows(r);
+    const panels = { ov: () => overviewTab(r, name) };
+    if (h.kind !== 'lump') panels.sip = () => sipTab(r);
+    if (txnRows(r).length) panels.his = () => historyTab(r);
+    if (folio) panels.fol = () => `<dl class="hold-dl">${folio}</dl>`;
+    const keys = Object.keys(panels);
+    const on = keys.includes(cardTab.get(h.id)) ? cardTab.get(h.id) : 'ov';
+    return `<article class="hold" data-id="${id}">
+      <div class="hold-top">
+        <div class="hold-id"><b class="hold-name"${title !== name ? ` title="${name}"` : ''}>${title}</b>${sub ? `<span class="hold-sub">${sub}</span>` : ''}</div>
+        ${r.error ? '' : `<div class="hold-val"><b class="hold-worth">${full(r.value)}</b><span class="pct ${signCls(r.gain)}">${g != null ? signed(g, x => pct(x, 1)) : ''}</span></div>`}
+      </div>
+      ${sipPills(r)}
+      <div class="hold-tabs" role="tablist" aria-label="${title}: details" style="--n:${keys.length}">${keys.map(k =>
+        `<button type="button" role="tab" id="ht-${id}-${k}" aria-controls="hp-${id}-${k}" aria-selected="${k === on}" tabindex="${k === on ? 0 : -1}" data-tab="${k}">${TABS[k]}</button>`).join('')}</div>
+      ${keys.map(k => `<div class="hold-panel" role="tabpanel" id="hp-${id}-${k}" aria-labelledby="ht-${id}-${k}" data-panel="${k}"${k === on ? '' : ' hidden'}>${panels[k]()}</div>`).join('')}
     </article>`;
+  }
+  /** Show one tab of a card, and remember it for the next redraw. */
+  function selectTab(tab, focus) {
+    const card = tab.closest('.hold'), k = tab.dataset.tab;
+    cardTab.set(card.dataset.id, k);
+    $$('[role="tab"]', card).forEach(t => { const on = t === tab; t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1; });
+    $$('.hold-panel', card).forEach(p => { p.hidden = p.dataset.panel !== k; });
+    if (focus) tab.focus();
   }
 
   function renderGroups() {
@@ -583,14 +806,16 @@
       const sub = g.err ? `${n} investment${n === 1 ? '' : 's'}${g.name === "Couldn't be valued" ? '' : ", couldn't be valued"}`
         : `${n} fund${n === 1 ? '' : 's'}${monthly ? ` · ${full(monthly)} a month` : ''}${g.t.xirr != null ? ` · XIRR ${pct(g.t.xirr, 1)}` : ''}${bad ? ` · ${bad} not valued` : ''}`;
       const login = view.group === 'amc' ? loginPill(g.name) : '';
-      return `<section class="card grp" style="--c:${g.err ? 'var(--line-2)' : seriesColor(c, i)}">
-        <button type="button" class="grp-head" data-grp="${esc(k)}" aria-expanded="${isOpen}">
-          <span class="grp-bar"></span>
-          <span class="grp-name"><b>${esc(g.name)}</b><small>${sub}</small></span>
-          ${g.err ? '' : `<span class="grp-fig"><b>${full(g.t.value)}</b><small class="${signCls(g.t.gain)}">${gain != null ? signed(gain, x => pct(x, 1)) : ''}</small></span>`}
-          ${icon('chev', 'chev')}
-        </button>
-        ${login ? `<div class="grp-links">${login}</div>` : ''}
+      return `<section class="grp" style="--c:${g.err ? 'var(--line-2)' : seriesColor(c, i)}">
+        <div class="grp-card">
+          <button type="button" class="grp-head" data-grp="${esc(k)}" aria-expanded="${isOpen}">
+            <span class="grp-bar"></span>
+            <span class="grp-name"><b>${esc(g.name)}</b><small>${sub}</small></span>
+            ${g.err ? '' : `<span class="grp-fig"><b>${full(g.t.value)}</b><small class="${signCls(g.t.gain)}">${gain != null ? signed(gain, x => pct(x, 1)) : ''}</small></span>`}
+            ${icon('chev', 'chev')}
+          </button>
+          ${login ? `<div class="grp-links">${login}</div>` : ''}
+        </div>
         <div class="grp-body"${isOpen ? '' : ' hidden'}>${g.rs.map(holdingHtml).join('')}</div>
       </section>`;
     }).join('');
@@ -601,7 +826,7 @@
     if (results.some(r => r.h.kind !== 'cas')) notes.push('SIPs and one-time amounts you enter are priced at the first NAV on or after the date, less 0.005% stamp duty from July 2020. Your real allotment can land a day or two later, so these are close estimates. Import your CAS for exact units.');
     (P.casWarnings || []).forEach(w => notes.push('Statement: ' + esc(w)));
     const noNominee = new Set(results.filter(r => r.h.kind === 'cas' && Array.isArray(r.h.nominees) && !r.h.nominees.length && (r.units > 0 || r.error)).map(r => folioEnd(r.h.folio) + '|' + (r.h.amc || '')));
-    if (noNominee.size) notes.push(`${noNominee.size === 1 ? 'One folio shows' : noNominee.size + ' folios show'} no nominee on your statement. If you haven't opted out of nomination, add one at the fund house, its registrar or MF Central. Open <b>Folio, nominees and exit load</b> on a fund to see which.`);
+    if (noNominee.size) notes.push(`${noNominee.size === 1 ? 'One folio shows' : noNominee.size + ' folios show'} no nominee on your statement. If you haven't opted out of nomination, add one at the fund house, its registrar or MF Central. Open a fund's <b>Folio</b> tab to see which.`);
     $('#pfNotes').innerHTML = notes.length ? `<ul class="notes-list">${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : '';
   }
 
@@ -875,9 +1100,9 @@
     reader.readAsText(file);
   }
 
-  function editGoal(id) {
+  function editGoal(id, from) {
     const h = P.holdings.find(x => x.id === id);
-    const btn = $(`[data-goal="${CSS.escape(id)}"]`);
+    const btn = from || $(`[data-goal="${CSS.escape(id)}"]`);
     if (!h || !btn) return;
     const wrap = document.createElement('span');
     wrap.className = 'goal-edit';
@@ -961,7 +1186,18 @@
         return;
       }
       const g = e.target.closest('[data-goal]');
-      if (g) { editGoal(g.dataset.goal); return; }
+      if (g) { editGoal(g.dataset.goal, g); return; }
+      const tab = e.target.closest('.hold-tabs [role="tab"]');
+      if (tab) { selectTab(tab, false); return; }
+      const tx = e.target.closest('[data-txns]');
+      if (tx) { openTxns(tx.dataset.txns); return; }
+      const mo = e.target.closest('[data-more]');
+      if (mo) {
+        const x = $('.hold-extra', mo.closest('.hold')), on = mo.getAttribute('aria-expanded') !== 'true';
+        x.hidden = !on; mo.setAttribute('aria-expanded', String(on));
+        if (on) $('button', x).focus();
+        return;
+      }
       const sp = e.target.closest('[data-sip]');
       if (sp) { openSip(sp.dataset.sip); return; }
       const b = e.target.closest('[data-remove]');
@@ -971,16 +1207,26 @@
         P.holdings = P.holdings.filter(x => x.id !== h.id); save(); refresh();
       }
     });
+    // Tabs on a card: arrow keys, Home and End move between them.
+    $('#pfGroups').addEventListener('keydown', e => {
+      const tab = e.target.closest('.hold-tabs [role="tab"]');
+      if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      const all = $$('[role="tab"]', tab.parentElement), i = all.indexOf(tab);
+      const j = e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + all.length) % all.length;
+      e.preventDefault();
+      selectTab(all[j], true);
+    });
     $$('input[name="pf-group"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { view.group = r.value; saveView(); renderGroups(); } }));
+    $('#pfSipsMore').addEventListener('click', () => { debitsAll = !debitsAll; renderDebits(); $('#pfSipsMore').focus(); });
+    $('#pfSips').addEventListener('click', e => { if (e.target.closest('[data-group-sip]')) showSipGroups(); });
     $('#pfFigures').addEventListener('click', e => {
-      if (!e.target.closest('[data-group-sip]')) return;
-      view.group = 'sip'; saveView(); renderGroups();
-      const first = $('#pfGroups .grp-head'); if (first) { first.scrollIntoView({ block: 'start', behavior: 'smooth' }); first.focus({ preventScroll: true }); }
+      if (e.target.closest('[data-group-sip]')) showSipGroups();
     });
     $$('input[name="sip-status"]').forEach(x => x.addEventListener('change', () => {
       const off = x.checked && x.value === 'off';
       if (x.checked) { $('#sipEndField').hidden = !off; if (off && !$('#sipEnd').value) $('#sipEnd').value = msToIso(todayMs()).slice(0, 7); }
     }));
+    $('#txnFilter').addEventListener('change', e => { if (e.target.name === 'txn-show') { txnShow = e.target.value; renderTxns(); $(`#txnFilter input[value="${txnShow}"]`).focus(); } });
     $('#sipSave').addEventListener('click', saveSip);
     $('#sipReset').addEventListener('click', () => { if (!sipFor) return; delete sipFor.sip; save(); refresh(); window.Shell.closePanel(); });
     $('#sipNone').addEventListener('click', () => { if (!sipFor) return; sipFor.sip = { none: true }; save(); refresh(); window.Shell.closePanel(); });
@@ -1008,6 +1254,11 @@
       try { D = await loadFunds(); } catch (e) { /* keep the old list */ }
       refresh();
     });
+  }
+
+  function showSipGroups() {
+    view.group = 'sip'; saveView(); renderGroups();
+    const first = $('#pfGroups .grp-head'); if (first) { first.scrollIntoView({ block: 'start', behavior: 'smooth' }); first.focus({ preventScroll: true }); }
   }
 
   let initP = null;
@@ -1038,7 +1289,7 @@
     },
     snapshot: () => lastSnapshot,
     /** Each valued holding with its SIP, for the Plan page's forecast. */
-    forecastItems: () => results.filter(r => !r.error).map(r => ({ id: r.h.id, name: nameOf(r), value: r.value, net: r.net, sip: sipOf(r.h), kind: r.h.kind, cat: fundOf(r) ? shortCategory(fundOf(r).k) : '' })),
+    forecastItems: () => results.filter(r => !r.error).map(r => ({ id: r.h.id, name: nameOf(r), short: fundOf(r) ? shortName(r) : nameOf(r), plan: fundOf(r) ? fundOf(r).p : '', value: r.value, net: r.net, sip: sipOf(r.h), kind: r.h.kind, cat: fundOf(r) ? shortCategory(fundOf(r).k) : '' })),
     load: () => init(),
     /** Funds held, for other pages: [{code, name}] */
     held: () => results.filter(r => !r.error).map(r => ({ code: r.code, name: nameOf(r) }))

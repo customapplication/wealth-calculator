@@ -391,7 +391,7 @@
         <span class="fc-top"><span class="fc-rk">${rankOf.get(f.c)}</span>
           <span class="fc-main"><span class="fn">${esc(nm(f))}</span><span class="fa">${esc(subLine(f))}</span></span>
           <label class="fc-cmp">${cb(f)}Compare</label></span>
-        <span class="fc-nums"><span class="key"><b class="${negCls(m.key, x)}">${fmtCell(m.key, x)}</b><small>${esc(m.col)}</small></span>
+        <span class="fc-nums"><span class="hl"><b class="${negCls(m.key, x)}">${fmtCell(m.key, x)}</b><small>${esc(m.col)}</small></span>
           ${others.map(k => `<span><b class="${negCls(k, f.m[k])}">${fmtCell(k, f.m[k])}</b><small>${esc(MEASURES.find(z => z.key === k).col)}</small></span>`).join('')}</span>
         ${state.plan === 'Both' ? gapNote(f) : ''}
       </li>`;
