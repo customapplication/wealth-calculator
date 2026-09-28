@@ -140,41 +140,24 @@
     const u = st.ups[st.ups.length - 1];
     return `Stepped up +${full(u.to - u.from)} in ${fmtMonth(isoToMs(u.date))}`;
   }
-  /** The SIP's own line on a card: amount and day, since when (and to when), instalments, a step-up pill and this month's debit. */
-  function sipStrip(r) {
+  /** The SIP in a few words, for the card's header: "SIP ₹2,500 on the 10th · running", "SIP stopped Jun 2023", "one-time ₹20,000 on 12 May 2021". */
+  function sipHead(r) {
+    const h = r.h, s = sipOf(h);
+    if (h.kind === 'lump') return `one-time ${full(h.amount)} on ${fmtDate(h.date)}`;
+    if (!s) return h.kind === 'cas' ? 'no SIP' : '';
+    return s.running ? `SIP ${full(s.amount)}${s.day ? ` on the ${ordinal(s.day)}` : ''} · running` : `SIP stopped${s.end ? ` ${fmtMonth(isoToMs(s.end + '-01'))}` : ''}`;
+  }
+  /** Pills under the name, on every tab: a step-up, and this month's debit. */
+  function sipPills(r) {
     const h = r.h, s = sipOf(h);
     if (h.kind === 'lump' || !s) return '';
-    const seen = seenSip(h), mine = s.source !== 'statement';
-    const bits = [], pills = [];
-    const day = s.day ? ` on the ${ordinal(s.day)}` : '';
-    if (s.running) {
-      if (h.kind === 'cas' && !mine && seen) bits.push(seen.startKnown ? `Started ${fmtDate(seen.first)}` : `Started ${fmtDate(seen.first)} or earlier <small>(your statement starts then)</small>`);
-      else if (s.start) bits.push(`Started ${fmtMonth(isoToMs(s.start + '-01'))}`);
-      if (seen) bits.push(`${seen.count} instalment${seen.count === 1 ? '' : 's'} in your statement`);
-      if (!mine && s.asOf && todayMs() - isoToMs(s.asOf) > 45 * DAY) bits.push(`as of ${fmtDate(s.asOf)}`);
-      const m = thisMonth(h, s);
-      if (m) pills.push(m.status === 'done' ? `<span class="pill ok">${icon('check')}Completed for ${esc(MON(m.t))}</span>`
-        : `<span class="pill due">${icon('cal')}${m.status === 'today' ? 'Due today' : `Due ${new Date(m.t).getUTCDate()} ${esc(MON(m.t))}`}</span>`);
-    } else {
-      const stmt = h.kind === 'cas' && !mine && seen;
-      const from = stmt ? fmtDate(seen.first) : s.start ? fmtMonth(isoToMs(s.start + '-01')) : '';
-      const to = stmt ? fmtDate(seen.last) : s.end ? fmtMonth(isoToMs(s.end + '-01')) : '';
-      if (from) bits.push(`Started ${from}${stmt && !seen.startKnown ? ' or earlier <small>(your statement starts then)</small>' : ''}`);
-      if (to) bits.push(`${stmt ? 'last instalment' : 'stopped'} ${to}`);
-      if (seen) bits.push(`${seen.count} instalment${seen.count === 1 ? '' : 's'}${!mine ? `, the last ${full(s.amount)}` : ''}`);
-    }
+    const seen = seenSip(h), pills = [];
     const step = stepText(h, s, seen);
-    if (step) pills.unshift(`<span class="pill step" title="${esc(stepTitle(seen))}">${icon('stepup')}${esc(step)}</span>`);
-    else if (seen && !seen.steps.several && seen.count >= 13 && s.running) pills.unshift('<span class="pill">No step-up seen</span>');
-    if (seen && seen.steps.several) bits.push('more than one SIP in this fund');
-    const head = s.running
-      ? `SIP ${full(s.amount)}${day} · running`
-      : `SIP stopped${s.end ? ` in ${fmtMonth(isoToMs(s.end + '-01'))}` : ''}`;
-    return `<div class="sip-strip ${s.running ? 'on' : 'off'}">${icon(s.running ? 'refresh' : 'pause')}<div>
-      <b>${head}</b>${bits.length ? `<span>${bits.join(' · ')}</span>` : ''}
-      ${pills.length ? `<span class="pills-row">${pills.join('')}</span>` : ''}
-      ${s.source === 'you' && h.kind === 'cas' ? '<span class="src">From the details you gave</span>' : ''}
-    </div></div>`;
+    if (step) pills.push(`<span class="pill step" title="${esc(stepTitle(seen))}">${icon('stepup')}${esc(step)}</span>`);
+    const m = s.running ? thisMonth(h, s) : null;
+    if (m) pills.push(m.status === 'done' ? `<span class="pill ok">${icon('check')}Completed for ${esc(MON(m.t))}</span>`
+      : `<span class="pill due">${icon('cal')}${m.status === 'today' ? 'Due today' : `Due ${new Date(m.t).getUTCDate()} ${esc(MON(m.t))}`}</span>`);
+    return pills.length ? `<div class="pills-row">${pills.join('')}</div>` : '';
   }
   function stepTitle(seen) {
     const ch = seen && seen.steps ? seen.steps.changes : [];
@@ -529,7 +512,7 @@
     window.Shell.openPanel('panelSip', '#sipAmt');
   }
   /** The SIP at a glance: what's debited, when, since when, how many instalments, step-ups, and this month. */
-  function sipFacts(h, s, seen) {
+  function sipFacts(h, s, seen, o = {}) {
     const row = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`, rows = [];
     if (!s && !seen) return '';
     if (s && s.running) {
@@ -546,6 +529,7 @@
       rows.push(row('Instalments', `${seen.count} in your statement, ${full(inst.reduce((a, x) => a + x.gross, 0))} in all`));
       const ch = seen.steps.changes;
       if (seen.steps.several) rows.push(row('Step-ups', 'More than one SIP in this fund, so the statement can\'t show them'));
+      else if (o.steps === false) { /* listed under the facts instead */ }
       else rows.push(row('Step-ups', ch.length ? ch.map(c => `${fmtMonth(isoToMs(c.date))}: ${full(c.from)} to ${full(c.to)} (${c.up ? '+' : '−'}${Math.abs(c.pct)}%)`).join('<br>') : 'None in your statement'));
     } else if (s && own) {
       if (s.start) rows.push(row('Started', fmtMonth(isoToMs(s.start + '-01'))));
@@ -614,6 +598,37 @@
     return rows.sort(byDate);
   }
 
+  /** One history row: date, type, amount, then NAV · units and the stamp duty (or tax). */
+  function txnLi(x) {
+    const k = txKind(x.type), u = +x.units || 0, bits = [];
+    if (x.nav != null && x.nav !== '' && +x.nav > 0) bits.push(`NAV ₹${navText(x.nav)}`);
+    if (u) bits.push(`${u < 0 ? '−' : ''}${units(Math.abs(u))} units`);
+    const right = x.stamp > 0 ? `stamp ${full2(x.stamp)}` : x.tax > 0 ? `tax ${full2(x.tax)}` : '';
+    return `<li class="txn"><b class="d">${dayMon(x.date)}</b><span><span class="tp tp-${k}">${esc(TX_LABEL[x.type] || x.type)}</span></span><b class="a${k === 'sell' ? ' out' : ''}">${x.amount ? (k === 'sell' ? '−' : '') + money(x.amount) : '—'}</b>
+      <span></span><span class="m">${bits.join(' · ')}</span><span class="m r">${right}</span></li>`;
+  }
+  const stepMark = c => `<li class="txn-mark ${c.up ? 'up' : 'down'}">${icon(c.up ? 'stepup' : 'down')}${c.up ? 'Step-up' : 'Lowered'} from ${fmtMonth(isoToMs(c.date))}: ${full(c.from)} to ${full(c.to)} a month (${c.up ? '+' : '−'}${Math.abs(c.pct)}%)</li>`;
+  /** Where a SIP's amount changed: the statement's step-ups, or a hand-entered SIP's yearly ones. */
+  function stepMarks(r, rows) {
+    const h = r.h, marks = new Map();
+    if (h.kind === 'cas') Calc.sipSteps(Calc.sipInstalments(h)).changes.forEach(c => marks.set(c.date, c));
+    if (h.kind === 'sip' && h.step > 0) rows.forEach((x, i) => {
+      const a = i && Math.round(rows[i - 1].amount), b = Math.round(x.amount);
+      if (i && a !== b) marks.set(x.date, { date: x.date, from: a, to: b, up: b > a, pct: Math.round((b / a - 1) * 1000) / 10 });
+    });
+    return marks;
+  }
+  /** Bought, sold and stamp duty over a fund's rows. */
+  function txnTotals(rows) {
+    const of = k => rows.filter(x => txKind(x.type) === k);
+    return {
+      bought: of('sip').concat(of('buy').filter(x => x.type !== 'DIVIDEND_REINVEST')).reduce((a, x) => a + x.amount, 0),
+      sold: of('sell').reduce((a, x) => a + x.amount, 0),
+      stamp: rows.reduce((a, x) => a + x.stamp, 0) + rows.filter(x => x.type === 'STAMP_DUTY_TAX').reduce((a, x) => a + x.amount, 0),
+      sips: of('sip').length
+    };
+  }
+
   let txnFor = null, txnShow = 'all';
   function openTxns(id) {
     const r = results.find(x => x.h.id === id);
@@ -625,41 +640,26 @@
   function renderTxns() {
     const r = txnFor, h = r.h, rows = txnRows(r), f = fundOf(r);
     $('#txnFund').textContent = f ? `${shortName(r)} · ${f.p} · ${f.o}` : nameOf(r);
-    const of = k => rows.filter(x => txKind(x.type) === k);
-    const bought = of('sip').concat(of('buy').filter(x => x.type !== 'DIVIDEND_REINVEST')).reduce((a, x) => a + x.amount, 0);
-    const sold = of('sell').reduce((a, x) => a + x.amount, 0);
-    const stamp = rows.reduce((a, x) => a + x.stamp, 0) + rows.filter(x => x.type === 'STAMP_DUTY_TAX').reduce((a, x) => a + x.amount, 0);
+    const tot = txnTotals(rows);
     const held = (h.kind === 'cas' ? +h.openUnits || 0 : 0) + (r.error ? rows.reduce((a, x) => a + (+x.units || 0), 0) : r.units || 0);
     const cell = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
-    $('#txnSum').innerHTML = cell('Bought', money(bought)) + (sold ? cell('Sold', money(sold)) : '') + cell('Stamp duty', full2(stamp)) + cell('Units now', units(held));
-    $('#txnSum').style.setProperty('--cols', sold ? 2 : 3);
-    const nSip = of('sip').length, counts = { all: rows.length, sip: nSip, other: rows.length - nSip };
+    $('#txnSum').innerHTML = cell('Bought', money(tot.bought)) + (tot.sold ? cell('Sold', money(tot.sold)) : '') + cell('Stamp duty', full2(tot.stamp)) + cell('Units now', units(held));
+    $('#txnSum').style.setProperty('--cols', tot.sold ? 2 : 3);
+    const nSip = tot.sips, counts = { all: rows.length, sip: nSip, other: rows.length - nSip };
     const filt = $('#txnFilter');
     filt.hidden = !nSip || nSip === rows.length;
     filt.innerHTML = [['all', 'All'], ['sip', 'SIP'], ['other', 'Other']].map(([v, l]) =>
       `<label><input type="radio" name="txn-show" value="${v}"${txnShow === v ? ' checked' : ''}><span>${l} <small>${counts[v]}</small></span></label>`).join('');
     const shown = rows.filter(x => txnShow === 'all' || (txnShow === 'sip') === (x.type === 'PURCHASE_SIP')).reverse();
-    // Where the SIP's amount changed, as the statement shows it.
-    const marks = new Map();
-    if (h.kind === 'cas' && txnShow !== 'other') Calc.sipSteps(Calc.sipInstalments(h)).changes.forEach(c => marks.set(c.date, c));
+    const marks = txnShow === 'other' ? new Map() : stepMarks(r, rows);
     const step = h.kind === 'sip' && h.step > 0 ? h.step : 0;
-    if (step) rows.forEach((x, i) => {
-      const a = i && Math.round(rows[i - 1].amount), b = Math.round(x.amount);
-      if (i && a !== b) marks.set(x.date, { date: x.date, from: a, to: b, up: b > a, pct: Math.round((b / a - 1) * 1000) / 10 });
-    });
     let year = null, html = '';
     for (const x of shown) {
       const y = x.date.slice(0, 4);
       if (y !== year) { html += `${year ? '</ul>' : ''}<h3 class="txn-year">${y}</h3><ul>`; year = y; }
-      const k = txKind(x.type), u = +x.units || 0;
-      const bits = [];
-      if (x.nav != null && x.nav !== '' && +x.nav > 0) bits.push(`NAV ₹${navText(x.nav)}`);
-      if (u) bits.push(`${u < 0 ? '−' : ''}${units(Math.abs(u))} units`);
-      const right = x.stamp > 0 ? `stamp ${full2(x.stamp)}` : x.tax > 0 ? `tax ${full2(x.tax)}` : '';
-      html += `<li class="txn"><b class="d">${dayMon(x.date)}</b><span><span class="tp tp-${k}">${esc(TX_LABEL[x.type] || x.type)}</span></span><b class="a${k === 'sell' ? ' out' : ''}">${x.amount ? (k === 'sell' ? '−' : '') + money(x.amount) : '—'}</b>
-        <span></span><span class="m">${bits.join(' · ')}</span><span class="m r">${right}</span></li>`;
+      html += txnLi(x);
       const c = marks.get(x.date);
-      if (c && x.type === 'PURCHASE_SIP') html += `<li class="txn-mark ${c.up ? 'up' : 'down'}">${icon(c.up ? 'stepup' : 'down')}${c.up ? 'Step-up' : 'Lowered'} from ${fmtMonth(isoToMs(c.date))}: ${full(c.from)} to ${full(c.to)} a month (${c.up ? '+' : '−'}${Math.abs(c.pct)}%)</li>`;
+      if (c && x.type === 'PURCHASE_SIP') html += stepMark(c);
     }
     $('#txnList').innerHTML = html ? html + '</ul>' : '<p class="muted">No transactions.</p>';
     const per = P.casPeriod || {};
@@ -680,7 +680,7 @@
   const RTA_NAME = { CAMS: 'CAMS', KFINTECH: 'KFintech' };
 
   /* What the statement says about a fund beyond its money: folio, registrar, nominees, KYC, exit load. */
-  function casDetails(r) {
+  function folioRows(r) {
     const h = r.h;
     if (h.kind !== 'cas') return '';
     const row = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`, rows = [];
@@ -699,27 +699,22 @@
     if (h.demat) rows.push(row('Held', 'In your demat account'));
     if (h.stmt && h.stmt.value != null) rows.push(row('Statement', `Worth ${full(h.stmt.value)} on ${fmtDate(h.stmt.date)}${h.stmt.cost != null ? `, cost of the units held ${full(h.stmt.cost)}` : ''}`));
     if (h.load) rows.push(row('Exit load', `<span class="load">${esc(h.load)}</span>`));
-    if (!rows.length) return '';
-    return `<details class="hold-more"><summary>Folio, nominees and exit load</summary><dl>${rows.join('')}</dl></details>`;
+    return rows.join('');
   }
 
   const navText = v => v == null ? '—' : Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-  /** How many rows the history shows, for the History button. */
-  const txnCount = r => r.h.kind === 'cas' ? (r.h.txns || []).filter(x => !TAX_TYPES.has(x.type)).length : (r.events || []).length;
-  function holdingHtml(r) {
-    const h = r.h, name = esc(nameOf(r)), f = fundOf(r);
-    const goal = (h.goal || '').trim();
-    const site = amcSite(amcOf(r));
-    const sub = [f ? f.p : '', f ? f.o : '', h.kind === 'cas' && h.folio ? `<span class="nowrap">folio ••••${esc(folioEnd(h.folio))}</span>` : h.kind === 'lump' ? `<span class="nowrap">one-time ${full(h.amount)}</span> <span class="nowrap">on ${fmtDate(h.date)}</span>` : h.kind === 'sip' ? 'added by hand' : ''].filter(Boolean).join(' · ');
-    const title = f ? esc(shortName(r)) : name;
-    const g = r.net > 0 ? r.gain / r.net : null;
+  /* ---------- a fund's card: name and worth, then Overview / SIP / History / Folio tabs ---------- */
+  const cardTab = new Map();          // the tab each card shows, kept across redraws
+  const TABS = { ov: 'Overview', sip: 'SIP', his: 'History', fol: 'Folio' };
+  function overviewTab(r, name) {
+    const h = r.h, goal = (h.goal || '').trim();
     const fig = (k, v, cls) => `<div><span>${k}</span><b class="${cls || ''}">${v}</b></div>`;
-    const figs = r.error ? '' : `<div class="hold-grid">${r.closed
-      ? fig('Put in', full(r.moneyIn)) + fig('Taken out', full(r.moneyOut)) + fig('Gain', signed(r.gain, full), signCls(r.gain)) + fig('XIRR', r.xirr != null ? pct(r.xirr, 1) : '—') +
-        `<p class="hold-nav">No units left · last transaction ${fmtDate(r.lastT)}</p>`
-      : fig('Put in', full(r.net)) + fig('Gain', signed(r.gain, full), signCls(r.gain)) + fig('XIRR', r.xirr != null ? pct(r.xirr, 1) : '—') +
-        (r.dayBase > 0 ? fig(`Since ${fmtDate(r.prevT).replace(/ \d{4}$/, '')}`, signed(r.dayChange, full), signCls(r.dayChange)) : fig('Units', units(r.units))) +
-        `<p class="hold-nav">${units(r.units)} units × NAV <b>₹${navText(r.lastNav)}</b> of ${fmtDate(r.lastT)}</p>`}</div>`;
+    const figs = r.error ? `<p class="hold-err">${esc(r.error)}</p>` : `<div class="hold-figs">${r.closed
+      ? fig('Put in', full(r.moneyIn)) + fig('Taken out', full(r.moneyOut)) + fig('Gain', signed(r.gain, full), signCls(r.gain))
+      : fig('Put in', full(r.net)) + fig('Gain', signed(r.gain, full), signCls(r.gain)) + fig('XIRR', r.xirr != null ? pct(r.xirr, 1) : '—')}</div>
+      <p class="hold-nav">${r.closed
+        ? `No units left · last transaction ${fmtDate(r.lastT)}${r.xirr != null ? ` · XIRR <b>${pct(r.xirr, 1)}</b>` : ''}`
+        : `${units(r.units)} units × NAV <b>₹${navText(r.lastNav)}</b> (${dayMon(msToIso(r.lastT))})${r.dayBase > 0 ? ` · <b class="${signCls(r.dayChange)}">${signed(r.dayChange, full)}</b> since ${dayMon(msToIso(r.prevT))}` : ''}`}</p>`;
     const check = r.unitsMatch == null ? '' : r.unitsMatch
       ? `<span class="tagchip ok">${icon('check')}Units match your statement</span>`
       : `<span class="tagchip warn">Statement says ${units(h.closeUnits)} units</span>`;
@@ -730,31 +725,71 @@
       ? `<span class="tagchip warn">${h.panOk === false ? 'PAN not OK' : `KYC ${esc(h.kyc.toLowerCase())}`} on the statement</span>` : '';
     const goalChip = goal ? `<button type="button" class="tagchip" data-goal="${esc(h.id)}" aria-label="Goal: ${esc(goal)}. Change it">${icon('tag')}${esc(goal)}</button>` : '';
     const tags = [check, lock, kyc, goalChip].filter(Boolean).join('');
-    const n = txnCount(r);
-    const acts = [
-      n ? `<button type="button" data-txns="${esc(h.id)}">${icon('list')}<span>History <small>${n}</small></span></button>` : '',
-      h.kind !== 'lump' ? `<button type="button" data-sip="${esc(h.id)}">${icon('edit')}<span>SIP</span></button>` : '',
-      site ? `<a href="${esc(site.url)}" target="_blank" rel="noopener" aria-label="Log in at ${esc(site.name)}, on its website">${icon('out')}<span>Log in</span></a>` : '',
-      `<button type="button" data-more="${esc(h.id)}" aria-expanded="false" aria-label="More for ${name}: goal, remove">${icon('more')}<span>More</span></button>`
-    ].filter(Boolean);
-    return `<article class="hold" data-id="${esc(h.id)}">
+    return `${figs}
+      ${tags ? `<div class="hold-tags">${tags}</div>` : ''}
+      ${oldName(r) && h.kind !== 'cas' ? `<p class="muted small">AMFI now calls it this; you added it as “${esc(oldName(r))}”.</p>` : ''}
+      ${r.warn.length ? `<p class="muted small">${r.warn.map(esc).join(' ')}</p>` : ''}
+      <div class="hold-foot">${loginPill(amcOf(r)) || '<span></span>'}
+        <button type="button" class="btn-icon soft" data-more="${esc(h.id)}" aria-expanded="false" aria-label="More for ${name}: goal, remove">${icon('more')}</button></div>
+      <div class="hold-extra" hidden>
+        <button type="button" class="tagchip" data-goal="${esc(h.id)}" aria-label="${goal ? `Goal: ${esc(goal)}. Change it` : 'Set a goal'}">${icon('tag')}${goal ? 'Change the goal' : 'Set a goal'}</button>
+        <button type="button" class="linkish danger" data-remove="${esc(h.id)}" aria-label="Remove ${name}">Remove</button>
+      </div>`;
+  }
+  function sipTab(r) {
+    const h = r.h, s = sipOf(h), seen = seenSip(h);
+    const edit = label => `<button type="button" class="btn quiet sm" data-sip="${esc(h.id)}">${icon('edit')}${label}</button>`;
+    if (!s && !seen) return `<p class="muted small">${h.sip && h.sip.none ? 'You said this fund has no SIP.' : h.kind === 'cas' ? 'Your statement shows no SIP instalments in this fund.' : 'No SIP.'}</p>${edit('Add SIP details')}`;
+    const notes = [];
+    if (s && s.source === 'you' && h.kind === 'cas') notes.push('The amount, day and step-up are the details you gave; the rest is from your statement.');
+    else if (h.sip && h.sip.none) notes.push('You said this fund has no SIP now.');
+    if (s && s.source === 'statement' && s.asOf && todayMs() - isoToMs(s.asOf) > 45 * DAY) notes.push(`As of your statement to ${fmtDate(s.asOf)}.`);
+    const ch = seen && !seen.steps.several ? seen.steps.changes : null;
+    const steps = ch ? `<div class="sip-steps"><b>${ch.length ? 'Step-ups seen in your statement' : 'No step-up in your statement'}</b>${ch.length ? `<ul>${ch.map(c =>
+      `<li class="${c.up ? 'up' : 'down'}">${icon(c.up ? 'stepup' : 'down')}<span>${fmtMonth(isoToMs(c.date))}: <span class="nowrap">${full(c.from)} to ${full(c.to)}</span> <span class="nowrap">(${c.up ? '+' : '−'}${Math.abs(c.pct)}%)</span></span></li>`).join('')}</ul>` : ''}</div>` : '';
+    return `<dl class="sip-facts">${sipFacts(h, s, seen, { steps: false })}</dl>${steps}${notes.length ? `<p class="muted small">${notes.join(' ')}</p>` : ''}${edit('Edit SIP details')}`;
+  }
+  function historyTab(r) {
+    const rows = txnRows(r);
+    if (!rows.length) return '<p class="muted small">No transactions.</p>';
+    const t = txnTotals(rows), marks = stepMarks(r, rows);
+    const last = rows.slice(-4).reverse();
+    const since = fmtDate(rows[0].date);
+    return `<p class="hold-hsum">${rows.length} transaction${rows.length === 1 ? '' : 's'} since ${since} · bought ${money(t.bought)}${t.sold ? ` · sold ${money(t.sold)}` : ''} · stamp duty ${full2(t.stamp)}</p>
+      <ul class="txn-mini">${last.map(x => txnLi(x) + (marks.get(x.date) && x.type === 'PURCHASE_SIP' ? stepMark(marks.get(x.date)) : '')).join('')}</ul>
+      <button type="button" class="btn quiet sm" data-txns="${esc(r.h.id)}">${icon('list')}${rows.length > last.length ? `See all ${rows.length} transactions` : 'Open the history'}</button>
+      ${r.h.kind === 'cas' ? '' : '<p class="muted small">Worked out from AMFI NAVs; import your statement for the exact units.</p>'}`;
+  }
+  function holdingHtml(r) {
+    const h = r.h, name = esc(nameOf(r)), f = fundOf(r), id = esc(h.id);
+    const title = f ? esc(shortName(r)) : name;
+    const sub = [f ? f.p : '', sipHead(r)].filter(Boolean).join(' · ');
+    const g = r.net > 0 ? r.gain / r.net : null;
+    const folio = folioRows(r);
+    const panels = { ov: () => overviewTab(r, name) };
+    if (h.kind !== 'lump') panels.sip = () => sipTab(r);
+    if (txnRows(r).length) panels.his = () => historyTab(r);
+    if (folio) panels.fol = () => `<dl class="hold-dl">${folio}</dl>`;
+    const keys = Object.keys(panels);
+    const on = keys.includes(cardTab.get(h.id)) ? cardTab.get(h.id) : 'ov';
+    return `<article class="hold" data-id="${id}">
       <div class="hold-top">
         <div class="hold-id"><b class="hold-name"${title !== name ? ` title="${name}"` : ''}>${title}</b>${sub ? `<span class="hold-sub">${sub}</span>` : ''}</div>
         ${r.error ? '' : `<div class="hold-val"><b class="hold-worth">${full(r.value)}</b><span class="pct ${signCls(r.gain)}">${g != null ? signed(g, x => pct(x, 1)) : ''}</span></div>`}
       </div>
-      ${r.error ? `<p class="hold-err">${esc(r.error)}</p>` : ''}
-      ${figs}
-      ${sipStrip(r)}
-      ${oldName(r) && h.kind !== 'cas' ? `<p class="muted small">AMFI now calls it this; you added it as “${esc(oldName(r))}”.</p>` : ''}
-      ${r.warn.length ? `<p class="muted small">${r.warn.map(esc).join(' ')}</p>` : ''}
-      ${tags ? `<div class="hold-tags">${tags}</div>` : ''}
-      <div class="hold-acts" style="--n:${acts.length}">${acts.join('')}</div>
-      <div class="hold-extra" hidden>
-        <button type="button" class="tagchip" data-goal="${esc(h.id)}" aria-label="${goal ? `Goal: ${esc(goal)}. Change it` : 'Set a goal'}">${icon('tag')}${goal ? 'Change the goal' : 'Set a goal'}</button>
-        <button type="button" class="linkish danger" data-remove="${esc(h.id)}" aria-label="Remove ${name}">Remove</button>
-      </div>
-      ${casDetails(r)}
+      ${sipPills(r)}
+      <div class="hold-tabs" role="tablist" aria-label="${title}: details" style="--n:${keys.length}">${keys.map(k =>
+        `<button type="button" role="tab" id="ht-${id}-${k}" aria-controls="hp-${id}-${k}" aria-selected="${k === on}" tabindex="${k === on ? 0 : -1}" data-tab="${k}">${TABS[k]}</button>`).join('')}</div>
+      ${keys.map(k => `<div class="hold-panel" role="tabpanel" id="hp-${id}-${k}" aria-labelledby="ht-${id}-${k}" data-panel="${k}"${k === on ? '' : ' hidden'}>${panels[k]()}</div>`).join('')}
     </article>`;
+  }
+  /** Show one tab of a card, and remember it for the next redraw. */
+  function selectTab(tab, focus) {
+    const card = tab.closest('.hold'), k = tab.dataset.tab;
+    cardTab.set(card.dataset.id, k);
+    $$('[role="tab"]', card).forEach(t => { const on = t === tab; t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1; });
+    $$('.hold-panel', card).forEach(p => { p.hidden = p.dataset.panel !== k; });
+    if (focus) tab.focus();
   }
 
   function renderGroups() {
@@ -791,7 +826,7 @@
     if (results.some(r => r.h.kind !== 'cas')) notes.push('SIPs and one-time amounts you enter are priced at the first NAV on or after the date, less 0.005% stamp duty from July 2020. Your real allotment can land a day or two later, so these are close estimates. Import your CAS for exact units.');
     (P.casWarnings || []).forEach(w => notes.push('Statement: ' + esc(w)));
     const noNominee = new Set(results.filter(r => r.h.kind === 'cas' && Array.isArray(r.h.nominees) && !r.h.nominees.length && (r.units > 0 || r.error)).map(r => folioEnd(r.h.folio) + '|' + (r.h.amc || '')));
-    if (noNominee.size) notes.push(`${noNominee.size === 1 ? 'One folio shows' : noNominee.size + ' folios show'} no nominee on your statement. If you haven't opted out of nomination, add one at the fund house, its registrar or MF Central. Open <b>Folio, nominees and exit load</b> on a fund to see which.`);
+    if (noNominee.size) notes.push(`${noNominee.size === 1 ? 'One folio shows' : noNominee.size + ' folios show'} no nominee on your statement. If you haven't opted out of nomination, add one at the fund house, its registrar or MF Central. Open a fund's <b>Folio</b> tab to see which.`);
     $('#pfNotes').innerHTML = notes.length ? `<ul class="notes-list">${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : '';
   }
 
@@ -1152,6 +1187,8 @@
       }
       const g = e.target.closest('[data-goal]');
       if (g) { editGoal(g.dataset.goal, g); return; }
+      const tab = e.target.closest('.hold-tabs [role="tab"]');
+      if (tab) { selectTab(tab, false); return; }
       const tx = e.target.closest('[data-txns]');
       if (tx) { openTxns(tx.dataset.txns); return; }
       const mo = e.target.closest('[data-more]');
@@ -1169,6 +1206,15 @@
         if (!h || !window.confirm(`Remove ${h.name || 'this investment'} from your portfolio${synced() ? ' and your Google Sheet' : ''}?`)) return;
         P.holdings = P.holdings.filter(x => x.id !== h.id); save(); refresh();
       }
+    });
+    // Tabs on a card: arrow keys, Home and End move between them.
+    $('#pfGroups').addEventListener('keydown', e => {
+      const tab = e.target.closest('.hold-tabs [role="tab"]');
+      if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      const all = $$('[role="tab"]', tab.parentElement), i = all.indexOf(tab);
+      const j = e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + all.length) % all.length;
+      e.preventDefault();
+      selectTab(all[j], true);
     });
     $$('input[name="pf-group"]').forEach(r => r.addEventListener('change', () => { if (r.checked) { view.group = r.value; saveView(); renderGroups(); } }));
     $('#pfSipsMore').addEventListener('click', () => { debitsAll = !debitsAll; renderDebits(); $('#pfSipsMore').focus(); });
