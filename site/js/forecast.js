@@ -71,8 +71,11 @@
     $('#fcRates').innerHTML = pills.map(p => `<button type="button" class="seg-btn" data-rate="${p.r}" aria-pressed="${p.r === S.rate}">${esc(p.label)}</button>`).join('');
   }
 
-  const sipLabel = (s, step) => !s ? '<span class="muted">No SIP</span>'
-    : s.running ? `${full(s.amount)} a month${step > 0 ? `<small>+${step}% a year</small>` : ''}`
+  /** "+10% a year" (the one step-up for all, or the SIP's own), "+₹500 a year" (a statement's fixed raise), or ''. */
+  const stepText = s => !s || !s.running ? '' : S.stepMode === 'all' ? (S.step > 0 ? `+${S.step}% a year` : '')
+    : s.step > 0 ? `+${s.step}% a year` : s.stepAmt > 0 ? `+${full(s.stepAmt)} a year` : '';
+  const sipLabel = s => !s ? '<span class="muted">No SIP</span>'
+    : s.running ? `${full(s.amount)} a month${stepText(s) ? `<small>${stepText(s)}</small>` : ''}`
     : `<span class="muted">Stopped${s.end ? ' ' + fmtMonth(s.end + '-01') : ''}</span>`;
 
   function render() {
@@ -127,13 +130,21 @@
   function renderTable(items, f) {
     const by = new Map(f.holdings.map(h => [h.id, h]));
     const rows = items.map(x => ({ x, h: by.get(x.id) })).sort((a, b) => b.h.value - a.h.value);
-    const stepOf = x => x.sip && x.sip.running ? (S.stepMode === 'all' ? S.step : x.sip.step || 0) : 0;
     const n = items.length, on = items.filter(x => x.sip && x.sip.running).length;
+    const monthly = items.filter(x => x.sip && x.sip.running).reduce((s, x) => s + x.sip.amount, 0);
+    const inYears = `In ${S.years} year${S.years === 1 ? '' : 's'}`;
     $('#fcFundsSub').textContent = `${n} fund${n === 1 ? '' : 's'}, ${on} with a running SIP. Change a SIP, its step-up or when it stopped on Portfolio.`;
-    $('#fcTable').innerHTML = `<thead><tr><th>Fund</th><th>Worth today</th><th>SIP</th><th>You'd put in</th><th>In ${S.years} year${S.years === 1 ? '' : 's'}</th></tr></thead><tbody>` +
+    $('#fcTable').innerHTML = `<thead><tr><th>Fund</th><th>Worth today</th><th>SIP</th><th>You'd put in</th><th>${inYears}</th></tr></thead><tbody>` +
       rows.map(({ x, h }) => `<tr class="${x.sip && !x.sip.running ? 'off' : ''}"><td><span class="fn">${esc(x.name)}</span>${x.cat ? `<small>${esc(x.cat)}</small>` : ''}</td>
-        <td class="n">${full(x.value)}</td><td class="n sip">${sipLabel(x.sip, stepOf(x))}</td><td class="n">${h.added ? full(h.added) : '—'}</td><td class="n"><b>${full(h.value)}</b></td></tr>`).join('') +
-      `<tr class="total"><td>All</td><td class="n">${full(f.rows[0].value)}</td><td class="n">${full(items.filter(x => x.sip && x.sip.running).reduce((s, x) => s + x.sip.amount, 0))} a month</td><td class="n">${full(f.added)}</td><td class="n"><b>${full(f.value)}</b></td></tr></tbody>`;
+        <td class="n">${full(x.value)}</td><td class="n sip">${sipLabel(x.sip)}</td><td class="n">${h.added ? full(h.added) : '—'}</td><td class="n"><b>${full(h.value)}</b></td></tr>`).join('') +
+      `<tr class="total"><td>All</td><td class="n">${full(f.rows[0].value)}</td><td class="n">${full(monthly)} a month</td><td class="n">${full(f.added)}</td><td class="n"><b>${full(f.value)}</b></td></tr></tbody>`;
+    // On a phone, the same figures as one card per fund: no sideways scrolling.
+    const card = (name, sub, today, sip, put, end, cls) => `<li class="${cls || ''}">
+      <div class="fcf-top"><span class="fn"><b>${name}</b>${sub ? `<small>${sub}</small>` : ''}</span><span class="fcf-end"><b>${end}</b><small>${inYears.toLowerCase()}</small></span></div>
+      <div class="fcf-figs"><span><small>Worth today</small><b>${today}</b></span><span><small>SIP</small><b>${sip}</b></span><span><small>You'd put in</small><b>${put}</b></span></div></li>`;
+    const sipShort = s => !s ? '<span class="muted">No SIP</span>' : s.running ? `${full(s.amount)}<small>a month${stepText(s) ? `, ${stepText(s)}` : ''}</small>` : sipLabel(s);
+    $('#fcCards').innerHTML = rows.map(({ x, h }) => card(esc(x.short || x.name), esc([x.cat, x.plan].filter(Boolean).join(' · ')), full(x.value), sipShort(x.sip), h.added ? full(h.added) : '—', full(h.value), x.sip && !x.sip.running ? 'off' : '')).join('') +
+      card('All your funds', `${n} fund${n === 1 ? '' : 's'}`, full(f.rows[0].value), `${full(monthly)}<small>a month</small>`, full(f.added), full(f.value), 'total');
   }
 
   /* ---------- inputs ---------- */
@@ -156,7 +167,9 @@
     if (!last || !window.Planner || !window.Planner.useNumbers) return;
     const items = last.items, running = items.filter(x => x.sip && x.sip.running && x.sip.amount > 0);
     const monthly = running.reduce((s, x) => s + x.sip.amount, 0);
-    const step = S.stepMode === 'all' ? S.step : monthly ? running.reduce((s, x) => s + x.sip.amount * (x.sip.step || 0), 0) / monthly : 0;
+    // Each SIP's own step-up, weighted by its amount (a fixed ₹ raise as its % of today's amount).
+    const pctOf = s => s.step > 0 ? s.step : s.stepAmt > 0 ? 100 * s.stepAmt / s.amount : 0;
+    const step = S.stepMode === 'all' ? S.step : monthly ? running.reduce((s, x) => s + x.sip.amount * pctOf(x.sip), 0) / monthly : 0;
     window.Planner.useNumbers({ existingCorpus: items.reduce((s, x) => s + x.value, 0), monthlySip: monthly, sipYears: S.years, stepUpValue: step, rate: S.rate });
     setMode('plan', true);
     window.scrollTo(0, 0);

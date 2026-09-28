@@ -63,6 +63,11 @@
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-save" viewBox="0 0 24 24"><path d="M6.5 3.5h11a1 1 0 0 1 1 1v16l-6.5-4-6.5 4v-16a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h7"/><circle cx="4.5" cy="6" r=".9" fill="currentColor"/><circle cx="4.5" cy="12" r=".9" fill="currentColor"/><circle cx="4.5" cy="18" r=".9" fill="currentColor"/></g></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></g></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></g></symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></g></symbol>
+    <symbol id="i-stepup" viewBox="0 0 24 24"><path d="M4 18h5v-5h5V8h6M16 4h4v4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.1 7.1a1 1 0 0 1-1.4 0z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></symbol>
   </defs>
 </svg>
@@ -151,8 +156,10 @@
         </section>
 
         <section class="card span4" id="homeNext">
-          <div class="card-head"><h2>Next SIPs</h2><span class="muted small" id="homeNextSum"></span></div>
-          <ul class="next-list" id="homeNextList"></ul>
+          <div class="card-head"><h2 id="homeNextTitle">This month's SIPs</h2><span class="muted small" id="homeNextSum"></span></div>
+          <div class="month-bar" id="homeNextBar" hidden><i></i></div>
+          <ul class="next-list month-list" id="homeNextList" tabindex="0" aria-labelledby="homeNextTitle"></ul>
+          <p class="muted small" id="homeNextNote" hidden></p>
           <a class="card-link" href="#portfolio" id="homeNextAll">See your investments<svg class="ic" aria-hidden="true"><use href="#i-right"/></svg></a>
         </section>
 
@@ -213,6 +220,12 @@
 
     <div id="pfBody" hidden>
       <section class="card figs4" id="pfFigures" aria-live="polite"></section>
+
+      <section class="card" id="pfSips" hidden>
+        <div class="card-head stack"><h2>SIP debits</h2><span class="muted small" id="pfSipsSum"></span></div>
+        <ul class="debit-list" id="pfSipsList"></ul>
+        <div class="debit-foot"><button type="button" class="linkish" id="pfSipsMore" aria-expanded="false" hidden></button><span class="muted small" id="pfSipsNote"></span></div>
+      </section>
 
       <section class="card" id="pfChartWrap">
         <div class="card-head wrap">
@@ -426,7 +439,8 @@
       </section>
       <section class="card flush">
         <div class="card-head pad"><h2>Your funds</h2><span class="muted small" id="fcFundsSub"></span></div>
-        <div class="scroll"><table class="tbl fc-table" id="fcTable"></table></div>
+        <div class="scroll fc-wide"><table class="tbl fc-table" id="fcTable"></table></div>
+        <ul class="fc-cards" id="fcCards"></ul>
       </section>
       <div class="btn-row"><button type="button" class="btn quiet" id="fcToPlan"><svg class="ic" aria-hidden="true"><use href="#i-bars"/></svg>Use these numbers in a plan</button><a class="btn quiet" href="#portfolio">Change your SIPs on Portfolio</a></div>
       <p class="foot">A forecast assumes the same return every month for everything you hold. Real returns swing, differ between funds, and aren't guaranteed. Stopped SIPs add nothing; their money keeps growing. Taxes, exit loads and fund expenses are left out. This is a planning tool, not investment advice.</p>
@@ -742,6 +756,7 @@
 <div class="panel" id="panelSip" role="dialog" aria-modal="true" aria-labelledby="panelSipTitle" hidden>
   <div class="panel-head"><div class="ph-text"><b id="panelSipTitle">SIP details</b><span class="ph-sum" id="sipFund"></span></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
   <div class="panel-body">
+    <dl class="sip-facts" id="sipFacts"></dl>
     <p class="note" id="sipNote"></p>
     <label class="field"><span class="lbl" id="sipAmtLbl">Monthly amount</span><span class="box"><span class="pre">₹</span><input id="sipAmt" type="number" min="100" step="500" inputmode="decimal"></span></label>
     <div class="row2">
@@ -762,6 +777,16 @@
       <button type="button" class="linkish" id="sipNone">This fund has no SIP</button>
     </div>
     <p class="hint" id="sipMsg" role="status"></p>
+  </div>
+</div>
+
+<div class="panel" id="panelTxn" role="dialog" aria-modal="true" aria-labelledby="panelTxnTitle" hidden>
+  <div class="panel-head"><div class="ph-text"><b id="panelTxnTitle">Transactions</b><span class="ph-sum" id="txnFund"></span></div><button type="button" class="btn-icon" data-panel-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="panel-body">
+    <div class="txn-sum" id="txnSum"></div>
+    <div class="pills txn-filter" role="radiogroup" aria-label="Show" id="txnFilter"></div>
+    <div class="txn-list" id="txnList"></div>
+    <p class="note" id="txnNote"></p>
   </div>
 </div>
 
